@@ -1,6 +1,8 @@
 # trans
 Literally just prints the trans flag
 
+---
+
 ### **install**
 
 1. **download**
