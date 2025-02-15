@@ -1,5 +1,6 @@
 # trans
 Literally just prints the trans flag
+![trans](https://github.com/papaj2139/trans/blob/main/sc.png)
 
 ---
 
