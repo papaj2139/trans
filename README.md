@@ -33,7 +33,7 @@ Literally just prints the trans flag
      trans
      ```
      
-should work on almost every distro but only tested on debian
+should work on almost every distro but only tested on debian and alpine
 
 ---
 # Uninstall
