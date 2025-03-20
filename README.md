@@ -32,6 +32,10 @@ Literally just prints the trans flag
      ```bash
      trans
      ```
+   - OR you can also print a bigger version of the flag with 
+     ```bash
+     trans big
+     ```
      
 should work on almost every distro but only tested on debian and alpine
 
