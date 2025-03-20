@@ -2,6 +2,7 @@
 Literally just prints the trans flag
 
 ![trans](https://github.com/papaj2139/trans/blob/main/sc.png)
+
 ![image](https://github.com/user-attachments/assets/dca32fb7-3b88-4234-bb25-11b96ee99a85)
 
 
