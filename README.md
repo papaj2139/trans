@@ -22,7 +22,7 @@ Literally just prints the trans flag to your terminal, supports multiple sizes a
     ```
 
 3.  **move to system-wide location (optional):**
-    Example using `/usr/local/bin`:
+    example using `/usr/local/bin`:
     ```bash
     sudo mv trans /usr/local/bin/
     ```
@@ -81,7 +81,7 @@ you can override the default dimensions for any size using the `--width` and `--
 
 **compatibility:**
 
-should work on most modern linux/*nix systems with bash and standard command-line tools (`tput`, `printf`, `seq`). tested primarily on Debian and Alpine
+should work on most modern distro's and in general *nix with bash and standard command-line tools (`tput`, `printf`, `seq`). tested primarily on Debian and Alpine
 
 require a terminal emulator that supports:
 * UTF-8 character encoding (to display the `█` character correctly)
