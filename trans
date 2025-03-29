@@ -1,53 +1,178 @@
 #!/bin/bash
 
-BLUE='\033[38;2;91;206;250m'    
-PINK='\033[38;2;255;105;180m'   
-WHITE='\033[38;2;255;255;255m' 
-RESET='\033[0m'     
+export LANG=C.UTF-8
 
-BIG_FLAG() {
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${PINK}████████████████████████████████████████████████"
-    echo -e "${PINK}████████████████████████████████████████████████"
-    echo -e "${PINK}████████████████████████████████████████████████"
-    echo -e "${WHITE}████████████████████████████████████████████████"
-    echo -e "${WHITE}████████████████████████████████████████████████"
-    echo -e "${WHITE}████████████████████████████████████████████████"
-    echo -e "${PINK}████████████████████████████████████████████████"
-    echo -e "${PINK}████████████████████████████████████████████████"
-    echo -e "${PINK}████████████████████████████████████████████████"
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${BLUE}████████████████████████████████████████████████"
-    echo -e "${RESET}"
+BLUE='\033[38;2;91;206;250m'
+PINK='\033[38;2;255;105;180m'
+WHITE='\033[38;2;255;255;255m'
+RESET='\033[0m'
+
+#takes total desired height, calculates lines per stripe based on 8:6:6:6:8 proportions
+calculate_stripes() {
+    local total_h=$1
+    #total 34 parts
+    local p_blue1=8 p_pink1=6 p_white=6 p_pink2=6 p_blue2=8
+    local total_p=$((p_blue1 + p_pink1 + p_white + p_pink2 + p_blue2))
+
+    #ensure minimum height of 5 (1 line per stripe)
+    if [[ "$total_h" -lt 5 ]]; then total_h=5; fi
+
+    #calculate integer parts using integer arithmetic
+    local lines_b1=$(( total_h * p_blue1 / total_p ))
+    local lines_p1=$(( total_h * p_pink1 / total_p ))
+    local lines_w=$((  total_h * p_white / total_p ))
+    local lines_p2=$(( total_h * p_pink2 / total_p ))
+    local lines_b2=$(( total_h * p_blue2 / total_p ))
+
+    #distribute remainder (add to largest proportions first for aesthetics)
+    local calculated_h=$(( lines_b1 + lines_p1 + lines_w + lines_p2 + lines_b2 ))
+    local remainder=$(( total_h - calculated_h ))
+
+    # dstribute remainder somewhat evenly, prioritizing top/bottom blue
+    while [[ "$remainder" -gt 0 ]]; do
+        ((lines_b1++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
+        ((lines_b2++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
+        ((lines_p1++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
+        ((lines_p2++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
+        ((lines_w++));  ((remainder--)); [[ "$remainder" -le 0 ]] && break
+    done
+
+    #return values space-separated (caller needs to read them)
+    echo "$lines_b1 $lines_p1 $lines_w $lines_p2 $lines_b2"
 }
 
-SMALL_FLAG() {
-    FLAG="
-    ${BLUE}███████████████████████████████████████
-    ${BLUE}███████████████████████████████████████
-    ${BLUE}███████████████████████████████████████
-    ${PINK}███████████████████████████████████████
-    ${PINK}███████████████████████████████████████
-    ${WHITE}███████████████████████████████████████
-    ${WHITE}███████████████████████████████████████
-    ${PINK}███████████████████████████████████████
-    ${PINK}███████████████████████████████████████
-    ${BLUE}███████████████████████████████████████
-    ${BLUE}███████████████████████████████████████
-    ${BLUE}███████████████████████████████████████
-    ${RESET}
-    "
-    echo -e "$FLAG"
+DRAW_FLAG() {
+    local width=$1
+    local height=$2
+    local check_term_size_flag=${3:-0} 
+
+    if [[ "$check_term_size_flag" -eq 1 ]]; then
+        local term_lines=$(tput lines)
+        if [[ "$term_lines" -lt "$height" ]]; then
+            echo -e "${WHITE}Warning: Your terminal (height: $term_lines) might be too small for the requested flag height ($height)."
+            echo -e "Please make it full screen or reduce height for best results.${RESET}"
+            read -p "Proceed anyway? [y/N] " -n 1 -r response
+            echo
+            if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                echo "Operation cancelled."
+                return 1 
+            fi
+        fi
+    fi
+
+    local stripe_lines
+    read -r lines_b1 lines_p1 lines_w lines_p2 lines_b2 <<< "$(calculate_stripes "$height")"
+
+    local block_line
+    if ! command -v seq &> /dev/null; then
+        echo "Error: 'seq' command not found, cannot generate flag line." >&2
+        return 1
+    fi
+    if ! [[ "$width" =~ ^[1-9][0-9]*$ ]]; then
+         echo "Error: Invalid width calculated or provided ($width)." >&2
+         return 1
+    fi
+    block_line=$(printf '%.0s█' $(seq 1 "$width"))
+
+    local i
+    for (( i=0; i<lines_b1; i++ )); do printf "%b%s\n" "${BLUE}" "${block_line}"; done
+    for (( i=0; i<lines_p1; i++ )); do printf "%b%s\n" "${PINK}" "${block_line}"; done
+    for (( i=0; i<lines_w; i++ ));  do printf "%b%s\n" "${WHITE}" "${block_line}"; done
+    for (( i=0; i<lines_p2; i++ )); do printf "%b%s\n" "${PINK}" "${block_line}"; done
+    for (( i=0; i<lines_b2; i++ )); do printf "%b%s\n" "${BLUE}" "${block_line}"; done
+
+    printf "%b" "${RESET}"
+    return 0
 }
 
-if [[ "$1" == "big" ]]; then
-    BIG_FLAG
-else
-    SMALL_FLAG
+
+flag_size="small" 
+req_width=-1      
+req_height=-1     
+
+
+declare -a pos_args=() 
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --width=*)
+            req_width="${1#*=}" #extracts value after =
+            if ! [[ "$req_width" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: Invalid width value '$req_width'. Must be a positive integer." >&2
+                exit 1
+            fi
+            shift 
+            ;;
+        --height=*)
+            req_height="${1#*=}" 
+            if ! [[ "$req_height" =~ ^[1-9][0-9]*$ ]]; then
+                 echo "Error: Invalid height value '$req_height'. Must be a positive integer." >&2
+                 exit 1
+            fi
+            shift
+            ;;
+        --) 
+            shift
+            pos_args+=("$@")
+            break
+            ;;
+        -*) 
+            echo "Error: Unknown option '$1'" >&2
+            echo "Usage: $0 [--width=W] [--height=H] [small|big|huge]" >&2
+            exit 1
+            ;;
+        *)
+           pos_args+=("$1")
+           shift
+           ;;
+    esac
+done
+
+if [[ ${#pos_args[@]} -gt 1 ]]; then
+    echo "Error: Too many arguments. Only one size (small, big, huge) is allowed." >&2
+    echo "Usage: $0 [--width=W] [--height=H] [small|big|huge]" >&2
+    exit 1
+elif [[ ${#pos_args[@]} -eq 1 ]]; then
+    size_arg="${pos_args[0]}"
+    if [[ "$size_arg" =~ ^(small|big|huge)$ ]]; then
+        flag_size="$size_arg"
+    else
+        echo "Error: Invalid size argument '$size_arg'. Use 'small', 'big', or 'huge'." >&2
+        echo "Usage: $0 [--width=W] [--height=H] [small|big|huge]" >&2
+        exit 1
+    fi
 fi
 
+final_width=0
+final_height=0
+check_terminal=0
+
+if [[ "$req_width" -gt 0 ]]; then
+    final_width="$req_width"
+else
+    
+    case "$flag_size" in
+        small) final_width=39 ;;
+        big)   final_width=48 ;;
+        huge)  final_width=$(tput cols) ;;
+    esac
+fi
+
+if [[ "$req_height" -gt 0 ]]; then
+    final_height="$req_height"
+else
+    case "$flag_size" in
+        small) final_height=12 ;; # 3+2+2+2+3
+        big)   final_height=17 ;; # 4+3+3+3+4
+        huge)  final_height=34 ;; # 8+6+6+6+8
+    esac
+    if [[ "$flag_size" == "huge" ]]; then
+        check_terminal=1
+    fi
+fi
+
+if [[ "$final_width" -lt 1 ]]; then final_width=1; fi
+if [[ "$final_height" -lt 5 ]]; then final_height=5; fi 
+
+DRAW_FLAG "$final_width" "$final_height" "$check_terminal"
+
+exit $?
