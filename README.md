@@ -12,7 +12,7 @@ Literally just prints the trans flag to your terminal, supports multiple sizes a
 
 1.  **download:**
     ```bash
-    git clone [https://github.com/papaj2139/trans.git](https://github.com/papaj2139/trans.git)
+    git clone https://github.com/papaj2139/trans.git
     ```
 
 2.  **make it Executable:**
@@ -30,7 +30,7 @@ Literally just prints the trans flag to your terminal, supports multiple sizes a
 
 4. **or just quickly**
     ```bash
-    git clone [https://github.com/papaj2139/trans.git](https://github.com/papaj2139/trans.git)
+    git clone https://github.com/papaj2139/trans.git
     cd trans
     chmod +x trans
     sudo mv trans /usr/local/bin/
