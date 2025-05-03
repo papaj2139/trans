@@ -89,7 +89,7 @@ you can override the default dimensions for any size using the `--width` and `--
 
 **compatibility:**
 
-should work on most modern distro's and in general *nix with bash and standard command-line tools (`tput`, `printf`, `seq`). tested primarily on Debian and Alpine
+should work on most modern distro's and in general *nix with bash and standard command-line tools (`tput`, `printf`, `seq`). tested primarily on Debian and Alpine even works on termux on android!
 
 require a terminal emulator that supports:
 * UTF-8 character encoding (to display the `█` character correctly)
