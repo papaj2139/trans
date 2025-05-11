@@ -2,33 +2,53 @@
 
 export LANG=C.UTF-8
 
+
 BLUE='\033[38;2;91;206;250m'
 PINK='\033[38;2;255;105;180m'
 WHITE='\033[38;2;255;255;255m'
 RESET='\033[0m'
 
-#takes total desired height, calculates lines per stripe based on 8:6:6:6:8 proportions
+
+print_usage() {
+  echo "Usage: $0 [options] [small|big|huge]"
+  echo "Draws the transgender pride flag in the terminal."
+  echo ""
+  echo "Options:"
+  echo "  -w W, --width=W    Set specific width (positive integer)."
+  echo "  -he H, --height=H  Set specific height (positive integer, min 5)."
+  echo "  -c C, --char=C     Use character C for drawing (default: '█'). Must be a single character."
+  echo "  -h, --help         Show this help message and exit."
+  echo ""
+  echo "Size Presets (used if width/height not specified):"
+  echo "  small              Preset size (39 width, 12 height)."
+  echo "  big                Preset size (48 width, 17 height)."
+  echo "  huge               Preset size (terminal width, 34 height, checks terminal height)."
+  echo ""
+  echo "If width/height are specified, they override presets."
+  echo "Default size is 'small' if no arguments are given."
+}
+
+
 calculate_stripes() {
     local total_h=$1
-    #total 34 parts
+    # total 34 parts
     local p_blue1=8 p_pink1=6 p_white=6 p_pink2=6 p_blue2=8
     local total_p=$((p_blue1 + p_pink1 + p_white + p_pink2 + p_blue2))
 
-    #ensure minimum height of 5 (1 line per stripe)
+    # ensure minimum height of 5 (1 line per stripe)
     if [[ "$total_h" -lt 5 ]]; then total_h=5; fi
 
-    #calculate integer parts using integer arithmetic
+    # calculate integer parts using integer arithmetic
     local lines_b1=$(( total_h * p_blue1 / total_p ))
     local lines_p1=$(( total_h * p_pink1 / total_p ))
     local lines_w=$((  total_h * p_white / total_p ))
     local lines_p2=$(( total_h * p_pink2 / total_p ))
     local lines_b2=$(( total_h * p_blue2 / total_p ))
 
-    #distribute remainder (add to largest proportions first for aesthetics)
+    # distribute remainder
     local calculated_h=$(( lines_b1 + lines_p1 + lines_w + lines_p2 + lines_b2 ))
     local remainder=$(( total_h - calculated_h ))
 
-    # dstribute remainder somewhat evenly, prioritizing top/bottom blue
     while [[ "$remainder" -gt 0 ]]; do
         ((lines_b1++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
         ((lines_b2++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
@@ -37,16 +57,24 @@ calculate_stripes() {
         ((lines_w++));  ((remainder--)); [[ "$remainder" -le 0 ]] && break
     done
 
-    #return values space-separated (caller needs to read them)
     echo "$lines_b1 $lines_p1 $lines_w $lines_p2 $lines_b2"
 }
 
 DRAW_FLAG() {
     local width=$1
     local height=$2
-    local check_term_size_flag=${3:-0} 
+    local check_term_size_flag=${3:-0}
+    local draw_char=${4:-"█"}
 
-    if [[ "$check_term_size_flag" -eq 1 ]]; then
+    local TPUT_AVAILABLE=1
+    if ! command -v tput &> /dev/null; then
+        TPUT_AVAILABLE=0
+        if [[ "$check_term_size_flag" -eq 1 ]]; then
+             echo "Warning: 'tput' command not found. Cannot check terminal height." >&2
+        fi
+    fi
+
+    if [[ "$check_term_size_flag" -eq 1 && "$TPUT_AVAILABLE" -eq 1 ]]; then
         local term_lines=$(tput lines)
         if [[ "$term_lines" -lt "$height" ]]; then
             echo -e "${WHITE}Warning: Your terminal (height: $term_lines) might be too small for the requested flag height ($height)."
@@ -55,7 +83,7 @@ DRAW_FLAG() {
             echo
             if [[ ! "$response" =~ ^[Yy]$ ]]; then
                 echo "Operation cancelled."
-                return 1 
+                return 1
             fi
         fi
     fi
@@ -72,7 +100,7 @@ DRAW_FLAG() {
          echo "Error: Invalid width calculated or provided ($width)." >&2
          return 1
     fi
-    block_line=$(printf '%.0s█' $(seq 1 "$width"))
+    block_line=$(printf "%.0s${draw_char}" $(seq 1 "$width"))
 
     local i
     for (( i=0; i<lines_b1; i++ )); do printf "%b%s\n" "${BLUE}" "${block_line}"; done
@@ -86,29 +114,87 @@ DRAW_FLAG() {
 }
 
 
-flag_size="small" 
-req_width=-1      
-req_height=-1     
+flag_size="small"
+req_width=-1
+req_height=-1
+flag_char="█"
 
-
-declare -a pos_args=() 
+#argument parsing loop
+declare -a pos_args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --width=*)
-            req_width="${1#*=}" #extracts value after =
-            if ! [[ "$req_width" =~ ^[1-9][0-9]*$ ]]; then
-                echo "Error: Invalid width value '$req_width'. Must be a positive integer." >&2
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        -w) 
+            if [[ -z "$2" || "$2" =~ ^- ]]; then #if value is missing or is another option
+                echo "Error: Option -w requires a value." >&2
+                print_usage >&2
                 exit 1
             fi
-            shift 
+            req_width="$2"
+            if ! [[ "$req_width" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: Invalid width value '$req_width' for -w. Must be a positive integer." >&2
+                print_usage >&2
+                exit 1
+            fi
+            shift 2 #consume -w and its value
             ;;
+        --width=*)
+            req_width="${1#*=}"
+            if ! [[ "$req_width" =~ ^[1-9][0-9]*$ ]]; then
+                echo "Error: Invalid width value '$req_width' for --width. Must be a positive integer." >&2
+                print_usage >&2
+                exit 1
+            fi
+            shift 1 #consume --width=value
+            ;;
+        -he) 
+             if [[ -z "$2" || "$2" =~ ^- ]]; then
+                echo "Error: Option -he requires a value." >&2
+                print_usage >&2
+                exit 1
+             fi
+             req_height="$2"
+             if ! [[ "$req_height" =~ ^[1-9][0-9]*$ ]]; then
+                  echo "Error: Invalid height value '$req_height' for -he. Must be a positive integer." >&2
+                  print_usage >&2
+                  exit 1
+             fi
+             shift 2 
+             ;;
         --height=*)
-            req_height="${1#*=}" 
+            req_height="${1#*=}"
             if ! [[ "$req_height" =~ ^[1-9][0-9]*$ ]]; then
-                 echo "Error: Invalid height value '$req_height'. Must be a positive integer." >&2
+                 echo "Error: Invalid height value '$req_height' for --height. Must be a positive integer." >&2
+                 print_usage >&2
                  exit 1
             fi
-            shift
+            shift 1
+            ;;
+        -c) 
+            if [[ -z "$2" || "$2" =~ ^- ]]; then
+                echo "Error: Option -c requires a value." >&2
+                print_usage >&2
+                exit 1
+            fi
+            flag_char="$2"
+            if [[ ${#flag_char} -ne 1 ]]; then
+                 echo "Error: Value '$flag_char' for -c must be a single character." >&2
+                 print_usage >&2
+                 exit 1
+            fi
+            shift 2 
+            ;;
+        --char=*)
+            flag_char="${1#*=}"
+            if [[ ${#flag_char} -ne 1 ]]; then
+                 echo "Error: Value '$flag_char' for --char must be a single character." >&2
+                 print_usage >&2
+                 exit 1
+            fi
+            shift 1 
             ;;
         --) 
             shift
@@ -117,27 +203,34 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*) 
             echo "Error: Unknown option '$1'" >&2
-            echo "Usage: $0 [--width=W] [--height=H] [small|big|huge]" >&2
+            print_usage >&2
             exit 1
             ;;
-        *)
-           pos_args+=("$1")
-           shift
-           ;;
+        *) 
+            pos_args+=("$1")
+            shift
+            ;;
     esac
 done
 
+#handle positional arguments szie preset
 if [[ ${#pos_args[@]} -gt 1 ]]; then
     echo "Error: Too many arguments. Only one size (small, big, huge) is allowed." >&2
-    echo "Usage: $0 [--width=W] [--height=H] [small|big|huge]" >&2
+    print_usage >&2
     exit 1
 elif [[ ${#pos_args[@]} -eq 1 ]]; then
     size_arg="${pos_args[0]}"
     if [[ "$size_arg" =~ ^(small|big|huge)$ ]]; then
         flag_size="$size_arg"
     else
-        echo "Error: Invalid size argument '$size_arg'. Use 'small', 'big', or 'huge'." >&2
-        echo "Usage: $0 [--width=W] [--height=H] [small|big|huge]" >&2
+        #check if it looks like a misplaced option value after fixing short options
+        if [[ ${#pos_args[@]} -eq 1 && ! "$size_arg" =~ ^- ]]; then
+             echo "Error: Invalid size argument '$size_arg'. Use 'small', 'big', or 'huge'." >&2
+        else
+             
+             echo "Error: Invalid argument or unknown option '$size_arg'." >&2
+        fi
+        print_usage >&2
         exit 1
     fi
 fi
@@ -145,34 +238,56 @@ fi
 final_width=0
 final_height=0
 check_terminal=0
+TPUT_AVAILABLE=1
+if ! command -v tput &> /dev/null; then TPUT_AVAILABLE=0; fi
 
+#calculate width
 if [[ "$req_width" -gt 0 ]]; then
     final_width="$req_width"
 else
-    
     case "$flag_size" in
         small) final_width=39 ;;
         big)   final_width=48 ;;
-        huge)  final_width=$(tput cols) ;;
+        huge)
+            detected_width=0
+            if [[ "$TPUT_AVAILABLE" -eq 1 ]]; then
+                if ! detected_width=$(tput cols); then
+                     echo "Warning: 'tput cols' command failed. Using default huge width (80)." >&2
+                     detected_width=0
+                fi
+            fi
+            if [[ "$detected_width" =~ ^[1-9][0-9]*$ ]]; then
+                final_width="$detected_width"
+            else
+                 if [[ "$TPUT_AVAILABLE" -eq 1 && "$detected_width" != "0" ]]; then
+                      echo "Warning: Could not determine terminal width via tput (got '$detected_width'). Using default huge width (80)." >&2
+                 elif [[ "$TPUT_AVAILABLE" -eq 0 ]]; then
+                      echo "Warning: 'tput' unavailable. Using default huge width (80)." >&2
+                 fi
+                 final_width=80 
+            fi
+            ;;
     esac
 fi
 
+#calculate height
 if [[ "$req_height" -gt 0 ]]; then
     final_height="$req_height"
 else
     case "$flag_size" in
-        small) final_height=12 ;; # 3+2+2+2+3
-        big)   final_height=17 ;; # 4+3+3+3+4
-        huge)  final_height=34 ;; # 8+6+6+6+8
+        small) final_height=12 ;;
+        big)   final_height=17 ;;
+        huge)  final_height=34 ;;
     esac
     if [[ "$flag_size" == "huge" ]]; then
         check_terminal=1
     fi
 fi
 
+#sanity check
 if [[ "$final_width" -lt 1 ]]; then final_width=1; fi
-if [[ "$final_height" -lt 5 ]]; then final_height=5; fi 
+if [[ "$final_height" -lt 5 ]]; then final_height=5; fi
 
-DRAW_FLAG "$final_width" "$final_height" "$check_terminal"
+DRAW_FLAG "$final_width" "$final_height" "$check_terminal" "$flag_char"
 
 exit $?
