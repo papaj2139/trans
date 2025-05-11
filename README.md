@@ -40,6 +40,11 @@ Literally just prints the trans flag to your terminal, supports multiple sizes a
 
 run the script directly (`./trans`) or using the globally accessible command (`trans`) if moved in installation step 3
 
+to see all available options and presets:
+```bash
+trans --help
+```
+
 **basic Usage (predefined Sizes):**
 
 * prints the default ('small') flag:
@@ -87,9 +92,24 @@ you can override the default dimensions for any size using the `--width` and `--
     trans big --width=120 --height=40
     ```
 
+* specify drawing character:
+    ```bash
+    #draw a small flag using '*'
+    trans -c "*"
+    #draw a big flag with custom dimensions using "#"
+    trans big -w 60 -he 20 --char="#"
+
+**important notes on options**
+
+* short options with valeus (e.g. -w 50) require the value to be next to the argument
+* long options with values (e.g., --width=50) use an equal sign
+* if you provide a size preset (small, big, huge) and width/height options the explicit width/height options will take precedence
+* if no size preset is given and only width/height options are used it implicitly uses the 'small' preset as a base if one of the dimensions is missing (e.g. trans -w 50 will use small's height) If both are given those are used directly
+* if no arguments are given trans small is executed
+
 **compatibility:**
 
-should work on most modern distro's and in general *nix with bash and standard command-line tools (`tput`, `printf`, `seq`). tested primarily on Debian and Alpine even works on termux on android!
+should work on most modern distro's and in general *nix with bash and standard command-line tools (`tput`, `printf`, `seq`). tested primarily on Debian and Alpine, konsole and gnome-terminal even works on termux on android!
 
 require a terminal emulator that supports:
 * UTF-8 character encoding (to display the `█` character correctly)
