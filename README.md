@@ -1,6 +1,6 @@
 # trans
 
-Literally just prints the trans flag to your terminal, supports multiple sizes and custom dimensions
+literally just prints the trans flag to your terminal, supports multiple sizes, custom dimensions, borders, centering, and a configuration file
 
 ![trans](https://github.com/papaj2139/trans/blob/main/sc.png)
 
@@ -55,10 +55,15 @@ trans --help
 
 * prints predefined larger sizes:
     ```bash
+    trans tiny
+    trans medium
     trans big
     trans huge
+    trans banner
     ```
-    * `huge`: by default attempts to fill your terminal's width uses a fixed height (34 lines) and will warn you if your terminal window appears too small vertically asking if you want to proceed
+    * tiny, small, medium, big: fixed width and height preset
+    * huge, banner: attempt to fill your terminal's width and use a predefined height
+    * huge (and other presets if a large custom height is specified) will warn you if your terminal window appears too small vertically and ask if you want to proceed
 
 **custom Dimensions (using flags):**
 
@@ -98,7 +103,21 @@ you can override the default dimensions for any size using the `--width` and `--
     trans -c "*"
     #draw a big flag with custom dimensions using "#"
     trans big -w 60 -he 20 --char="#"
-
+    ```
+* centering and borders:
+    ```bash
+    #center the default small flag
+    trans --center
+    
+    #draw a big flag with a border
+    trans big --border
+    
+    #draw a medium flag, centered, with a custom border character
+    trans medium --center --border --border-char "+"
+    
+    #draw a tiny flag with a custom border character and color (ansi escape code)
+    trans tiny --border --border-char='X' --border-color-esc '\033[38;2;255;255;0m'
+    ```
 **important notes on options**
 
 * short options with valeus (e.g. -w 50) require the value to be next to the argument
@@ -114,6 +133,27 @@ should work on most modern distro's and in general *nix with bash and standard c
 require a terminal emulator that supports:
 * UTF-8 character encoding (to display the `█` character correctly)
 * ANSI color escape codes (Truecolor `\033[38;2;R;G;Bm` support recommended for accurate colors but should fall back gracefully on terminals supporting at least 16/256 colors if Truecolor isn't available though the colors might look different)
+
+## config file
+you can set your preferred defaults in a configuration file the script will look for it in these locations, in order:
+1. $XDG_CONFIG_HOME/transrc (e.g., ~/.config/transrc)
+2. ~/.transrc
+create this file and add any of the following variables (using bash syntax):
+
+* TRANS_DEFAULT_SIZE="big" (e.g., "tiny", "small", "medium", "big", "huge", "banner")
+* TRANS_DEFAULT_CHAR="@" (any single character)
+* TRANS_DEFAULT_WIDTH=50 (positive integer)
+* TRANS_DEFAULT_HEIGHT=20 (positive integer, min 5)
+* TRANS_AUTO_CENTER="true" (or "false")
+* TRANS_BORDER_ENABLED="true" (or "false")
+* TRANS_BORDER_CHAR="." (any single character)
+* TRANS_BORDER_COLOR_ESC="\033[38;2;100;100;100m" (an ANSI escape code string)
+
+precedence of settings:
+
+* command-line arguments (highest precedence)
+* configuration file settings
+* script's hardcoded defaults (lowest precedence)
 
 ---
 
