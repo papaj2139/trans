@@ -6,6 +6,9 @@ literally just prints the trans flag to your terminal, supports multiple sizes, 
 
 ![image](https://github.com/user-attachments/assets/dca32fb7-3b88-4234-bb25-11b96ee99a85)
 
+![help](https://github.com/user-attachments/assets/a95cdf1c-ab77-4933-a469-57f53fe784a0)
+
+
 ---
 
 ## installation
