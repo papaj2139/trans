@@ -1,293 +1,455 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 export LANG=C.UTF-8
-
 
 BLUE='\033[38;2;91;206;250m'
 PINK='\033[38;2;255;105;180m'
 WHITE='\033[38;2;255;255;255m'
 RESET='\033[0m'
 
+DEFAULT_FLAG_SIZE="small"
+DEFAULT_FLAG_CHAR="█"
+DEFAULT_REQ_WIDTH=-1
+DEFAULT_REQ_HEIGHT=-1
+DEFAULT_AUTO_CENTER=0
+DEFAULT_BORDER_ENABLED=0 
+DEFAULT_BORDER_CHAR="*"
+DEFAULT_BORDER_COLOR_ESC='\033[38;2;180;180;180m' 
+
+flag_size="$DEFAULT_FLAG_SIZE"
+flag_char="$DEFAULT_FLAG_CHAR"
+req_width="$DEFAULT_REQ_WIDTH"
+req_height="$DEFAULT_REQ_HEIGHT"
+auto_center_flag="$DEFAULT_AUTO_CENTER"
+border_enabled_flag="$DEFAULT_BORDER_ENABLED"
+border_char="$DEFAULT_BORDER_CHAR"
+border_color_esc="$DEFAULT_BORDER_COLOR_ESC"
+
+CONFIG_FILE_USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/transrc"
+CONFIG_FILE_HOME_DIR="$HOME/.transrc"
 
 print_usage() {
-  echo "Usage: $0 [options] [small|big|huge]"
+  echo "Usage: $0 [options] [tiny|small|medium|big|huge|banner]"
   echo "Draws the transgender pride flag in the terminal."
   echo ""
   echo "Options:"
-  echo "  -w W, --width=W    Set specific width (positive integer)."
-  echo "  -he H, --height=H  Set specific height (positive integer, min 5)."
-  echo "  -c C, --char=C     Use character C for drawing (default: '█'). Must be a single character."
-  echo "  -h, --help         Show this help message and exit."
+  echo "  -w W, --width=W         Set specific width (positive integer)."
+  echo "  -he H, --height=H       Set specific height (positive integer, min 5)."
+  echo "  -c C, --char=C          Use character C for drawing (default: '█'). Single character."
+  echo "  -C, --center            Center the flag in the terminal."
+  echo "      --border            Enable a border around the flag (uses default char/color)."
+  echo "      --border-char CH    Set specific border character (enables border)."
+  echo "      --border-color-esc ESC Set specific ANSI escape code for border color (enables border)."
+  echo "  -h, --help              Show this help message and exit."
   echo ""
-  echo "Size Presets (used if width/height not specified):"
-  echo "  small              Preset size (39 width, 12 height)."
-  echo "  big                Preset size (48 width, 17 height)."
-  echo "  huge               Preset size (terminal width, 34 height, checks terminal height)."
+  echo "Size Presets (used if width/height not specified via options or config):"
+  echo "  tiny                    Very small preset (20 width, 5 height)."
+  echo "  small                   Default preset (39 width, 12 height)."
+  echo "  medium                  Medium preset (42 width, 15 height)."
+  echo "  big                     Large preset (48 width, 17 height)."
+  echo "  huge                    Fills terminal width, 34 height (checks terminal height)."
+  echo "  banner                  Fills terminal width, 15 height (wide)."
   echo ""
-  echo "If width/height are specified, they override presets."
-  echo "Default size is 'small' if no arguments are given."
+  echo "Configuration File:"
+  echo "  Loads settings from: \$XDG_CONFIG_HOME/transrc or ~/.transrc"
+  echo "  Supported config variables (e.g., TRANS_DEFAULT_SIZE=\"big\"):"
+  echo "    TRANS_DEFAULT_SIZE:   Default size preset (e.g., \"small\", \"huge\")."
+  echo "    TRANS_DEFAULT_CHAR:   Default drawing character (e.g., \"*\")."
+  echo "    TRANS_DEFAULT_WIDTH:  Default width (e.g., 50)."
+  echo "    TRANS_DEFAULT_HEIGHT: Default height (e.g., 20, min 5)."
+  echo "    TRANS_AUTO_CENTER:    Enable centering ('true' or 'false')."
+  echo "    TRANS_BORDER_ENABLED: Enable border ('true' or 'false')."
+  echo "    TRANS_BORDER_CHAR:    Default border character (e.g., \"+\")."
+  echo "    TRANS_BORDER_COLOR_ESC: ANSI escape code for border color (e.g., \"\033[38;2;100;100;100m\")."
+  echo ""
+  echo "Precedence: Command-line arguments > Configuration file settings > Script defaults."
 }
 
+load_config() {
+    local loaded_config_file=""
+    if [[ -f "$CONFIG_FILE_USER_CONFIG_DIR" ]]; then
+        # shellcheck source=/dev/null
+        . "$CONFIG_FILE_USER_CONFIG_DIR" 
+        loaded_config_file="$CONFIG_FILE_USER_CONFIG_DIR"
+    elif [[ -f "$CONFIG_FILE_HOME_DIR" ]]; then
+        . "$CONFIG_FILE_HOME_DIR"
+        loaded_config_file="$CONFIG_FILE_HOME_DIR"
+    fi
+
+    #override script defaults with config values if they are set
+    if [[ -n "${TRANS_DEFAULT_SIZE-}" ]]; then
+        if [[ "$TRANS_DEFAULT_SIZE" =~ ^(tiny|small|medium|big|huge|banner)$ ]]; then
+            flag_size="$TRANS_DEFAULT_SIZE"
+        else
+            echo "warning (config): invalid TRANS_DEFAULT_SIZE '$TRANS_DEFAULT_SIZE'." >&2
+        fi
+    fi
+    if [[ -n "${TRANS_DEFAULT_CHAR-}" ]]; then
+        if [[ ${#TRANS_DEFAULT_CHAR} -eq 1 ]]; then
+            flag_char="$TRANS_DEFAULT_CHAR"
+        else
+            echo "warning (config): invalid TRANS_DEFAULT_CHAR '$TRANS_DEFAULT_CHAR'. must be single char." >&2
+        fi
+    fi
+    if [[ -n "${TRANS_DEFAULT_WIDTH-}" ]]; then
+        if [[ "$TRANS_DEFAULT_WIDTH" =~ ^[1-9][0-9]*$ ]]; then # ensure positive integer
+            req_width="$TRANS_DEFAULT_WIDTH"
+        else
+            echo "warning (config): invalid TRANS_DEFAULT_WIDTH '$TRANS_DEFAULT_WIDTH'." >&2
+        fi
+    fi
+    if [[ -n "${TRANS_DEFAULT_HEIGHT-}" ]]; then
+        if [[ "$TRANS_DEFAULT_HEIGHT" =~ ^[1-9][0-9]*$ && "$TRANS_DEFAULT_HEIGHT" -ge 5 ]]; then # ensure positive integer >= 5
+            req_height="$TRANS_DEFAULT_HEIGHT"
+        elif [[ "$TRANS_DEFAULT_HEIGHT" =~ ^[1-9][0-9]*$ && "$TRANS_DEFAULT_HEIGHT" -lt 5 ]]; then
+            echo "warning (config): TRANS_DEFAULT_HEIGHT '$TRANS_DEFAULT_HEIGHT' < 5. setting to 5." >&2
+            req_height=5
+        else
+            echo "warning (config): invalid TRANS_DEFAULT_HEIGHT '$TRANS_DEFAULT_HEIGHT'." >&2
+        fi
+    fi
+
+    if [[ -n "${TRANS_AUTO_CENTER-}" ]]; then
+        if [[ "$TRANS_AUTO_CENTER" == "true" ]]; then auto_center_flag=1;
+        elif [[ "$TRANS_AUTO_CENTER" == "false" ]]; then auto_center_flag=0;
+        else echo "warning (config): invalid TRANS_AUTO_CENTER. use 'true' or 'false'." >&2; fi
+    fi
+    if [[ -n "${TRANS_BORDER_ENABLED-}" ]]; then
+        if [[ "$TRANS_BORDER_ENABLED" == "true" ]]; then border_enabled_flag=1;
+        elif [[ "$TRANS_BORDER_ENABLED" == "false" ]]; then border_enabled_flag=0;
+        else echo "warning (config): invalid TRANS_BORDER_ENABLED. use 'true' or 'false'." >&2; fi
+    fi
+    if [[ -n "${TRANS_BORDER_CHAR-}" ]]; then
+        if [[ ${#TRANS_BORDER_CHAR} -eq 1 ]]; then
+            border_char="$TRANS_BORDER_CHAR"
+        else
+            echo "warning (config): invalid TRANS_BORDER_CHAR. must be single char." >&2
+        fi
+    fi
+    if [[ -n "${TRANS_BORDER_COLOR_ESC-}" ]]; then
+        if [[ "$TRANS_BORDER_COLOR_ESC" =~ ^\\033\[.*m$ ]]; then 
+            border_color_esc="$TRANS_BORDER_COLOR_ESC"
+        else
+            echo "warning (config): invalid TRANS_BORDER_COLOR_ESC format." >&2
+        fi
+    fi
+}
 
 calculate_stripes() {
     local total_h=$1
-    # total 34 parts
     local p_blue1=8 p_pink1=6 p_white=6 p_pink2=6 p_blue2=8
     local total_p=$((p_blue1 + p_pink1 + p_white + p_pink2 + p_blue2))
 
-    # ensure minimum height of 5 (1 line per stripe)
+    # ensure minimum height of 5
     if [[ "$total_h" -lt 5 ]]; then total_h=5; fi
 
-    # calculate integer parts using integer arithmetic
+    #calculate integer parts using integer arithmetic
     local lines_b1=$(( total_h * p_blue1 / total_p ))
     local lines_p1=$(( total_h * p_pink1 / total_p ))
     local lines_w=$((  total_h * p_white / total_p ))
     local lines_p2=$(( total_h * p_pink2 / total_p ))
     local lines_b2=$(( total_h * p_blue2 / total_p ))
 
-    # distribute remainder
+    #distribute remainder to ensure total_h is met
     local calculated_h=$(( lines_b1 + lines_p1 + lines_w + lines_p2 + lines_b2 ))
     local remainder=$(( total_h - calculated_h ))
 
-    while [[ "$remainder" -gt 0 ]]; do
-        ((lines_b1++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
-        ((lines_b2++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
-        ((lines_p1++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
-        ((lines_p2++)); ((remainder--)); [[ "$remainder" -le 0 ]] && break
-        ((lines_w++));  ((remainder--)); [[ "$remainder" -le 0 ]] && break
-    done
+    #ensure each stripe gets at least one line if possible, especially if total_h is very small
+    if [[ "$lines_b1" -eq 0 ]]; then ((lines_b1++)); ((remainder--)); fi
+    if [[ "$lines_p1" -eq 0 && "$remainder" -gt 0 ]]; then ((lines_p1++)); ((remainder--)); fi
+    if [[ "$lines_w"  -eq 0 && "$remainder" -gt 0 ]]; then ((lines_w++));  ((remainder--)); fi
+    if [[ "$lines_p2" -eq 0 && "$remainder" -gt 0 ]]; then ((lines_p2++)); ((remainder--)); fi
+    if [[ "$lines_b2" -eq 0 && "$remainder" -gt 0 ]]; then ((lines_b2++)); ((remainder--)); fi
+    
+    while [[ "$remainder" -ne 0 ]]; do
+        if [[ "$remainder" -gt 0 ]]; then 
+            ((lines_b1++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((lines_b2++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((lines_p1++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((lines_p2++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((lines_w++));  ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+        elif [[ "$remainder" -lt 0 ]]; then 
+            if [[ "$lines_w" -gt 1 ]]; then ((lines_w--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
+            if [[ "$lines_p1" -gt 1 ]]; then ((lines_p1--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
+            if [[ "$lines_p2" -gt 1 ]]; then ((lines_p2--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
+            if [[ "$lines_b1" -gt 1 ]]; then ((lines_b1--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
+            if [[ "$lines_b2" -gt 1 ]]; then ((lines_b2--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
 
+            break 
+        fi
+    done
     echo "$lines_b1 $lines_p1 $lines_w $lines_p2 $lines_b2"
 }
 
 DRAW_FLAG() {
-    local width=$1
-    local height=$2
-    local check_term_size_flag=${3:-0}
-    local draw_char=${4:-"█"}
+    local flag_content_width=$1
+    local flag_content_height=$2
+    local arg_check_terminal_height_warning=${3}
+    local arg_draw_char=${4}
+    local arg_auto_center_flag=${5}
+    local arg_border_enabled_flag=${6}
+    local arg_border_char=${7}
+    local arg_border_color_esc=${8}
 
     local TPUT_AVAILABLE=1
-    if ! command -v tput &> /dev/null; then
-        TPUT_AVAILABLE=0
-        if [[ "$check_term_size_flag" -eq 1 ]]; then
-             echo "Warning: 'tput' command not found. Cannot check terminal height." >&2
-        fi
+    if ! command -v tput &> /dev/null; then TPUT_AVAILABLE=0; fi
+
+    local effective_total_height="$flag_content_height"
+    if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
+        effective_total_height=$((effective_total_height + 2)) 
     fi
 
-    if [[ "$check_term_size_flag" -eq 1 && "$TPUT_AVAILABLE" -eq 1 ]]; then
-        local term_lines=$(tput lines)
-        if [[ "$term_lines" -lt "$height" ]]; then
-            echo -e "${WHITE}Warning: Your terminal (height: $term_lines) might be too small for the requested flag height ($height)."
-            echo -e "Please make it full screen or reduce height for best results.${RESET}"
-            read -p "Proceed anyway? [y/N] " -n 1 -r response
-            echo
+    # check terminal height
+    if [[ "$arg_check_terminal_height_warning" -eq 1 && "$TPUT_AVAILABLE" -eq 1 ]]; then
+        local term_lines
+        if ! term_lines=$(tput lines); then
+            echo "warning: 'tput lines' command failed. cannot check terminal height." >&2
+        elif [[ "$term_lines" -lt "$effective_total_height" ]]; then
+            echo -e "${WHITE}warning: your terminal (height: $term_lines) might be too small for the flag (height: $effective_total_height)."
+            echo -e "please make it full screen or reduce height for best results.${RESET}"
+            local response
+            read -p "proceed anyway? [y/N] " -n 1 -r response
+            echo # newline after read -n
             if [[ ! "$response" =~ ^[Yy]$ ]]; then
-                echo "Operation cancelled."
+                echo "operation cancelled."
                 return 1
             fi
         fi
     fi
 
-    local stripe_lines
-    read -r lines_b1 lines_p1 lines_w lines_p2 lines_b2 <<< "$(calculate_stripes "$height")"
+    #get calculated stripe line counts for the flag height
+    local lines_b1 lines_p1 lines_w lines_p2 lines_b2
+    read -r lines_b1 lines_p1 lines_w lines_p2 lines_b2 <<< "$(calculate_stripes "$flag_content_height")"
 
     local block_line
     if ! command -v seq &> /dev/null; then
-        echo "Error: 'seq' command not found, cannot generate flag line." >&2
+        block_line=""
+        local j
+        for ((j=0; j<flag_content_width; j++)); do block_line+="${arg_draw_char}"; done
+    else
+        #ensure int is positive
+        if ! [[ "$flag_content_width" =~ ^[0-9]+$ ]]; then
+             echo "error: invalid width for seq ($flag_content_width)." >&2; return 1
+        fi
+        if [[ "$flag_content_width" -gt 0 ]]; then
+            block_line=$(printf "%.0s${arg_draw_char}" $(seq 1 "$flag_content_width"))
+        else
+            block_line=""
+        fi
+    fi
+     
+    # ensures block_line was generated if width > 0
+    if [[ -z "$block_line" && "$flag_content_width" -gt 0 ]]; then
+        echo "error: failed to generate flag line content for width $flag_content_width." >&2
         return 1
     fi
-    if ! [[ "$width" =~ ^[1-9][0-9]*$ ]]; then
-         echo "Error: Invalid width calculated or provided ($width)." >&2
-         return 1
+
+    # calculate total width
+    local actual_drawn_width="$flag_content_width"
+    if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
+        actual_drawn_width=$((actual_drawn_width + 2))
     fi
-    block_line=$(printf "%.0s${draw_char}" $(seq 1 "$width"))
+
+    #calculates leading spaces for centering
+    local leading_spaces_str=""
+    if [[ "$arg_auto_center_flag" -eq 1 && "$TPUT_AVAILABLE" -eq 1 ]]; then
+        local term_cols_val
+        if term_cols_val=$(tput cols); then # get terminal width
+            if [[ "$term_cols_val" -gt "$actual_drawn_width" ]]; then
+                local padding_val=$(( (term_cols_val - actual_drawn_width) / 2 ))
+                if [[ "$padding_val" -gt 0 ]]; then
+                    leading_spaces_str=$(printf "%${padding_val}s" "")
+                fi
+            fi
+        elif [[ "$arg_check_terminal_height_warning" -eq 0 ]]; then #only warns if not already warned by height check logic
+            echo "warning: 'tput cols' failed, cannot center flag." >&2
+        fi
+    fi
+
+    #generate border if enabed
+    local top_bottom_border_line_str=""
+    if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
+        local k
+        for ((k=0; k<actual_drawn_width; k++)); do #border line spans the whole actual_drawn_width
+            top_bottom_border_line_str+="${arg_border_char}"
+        done
+        printf "%s%b%s\n" "$leading_spaces_str" "$arg_border_color_esc" "$top_bottom_border_line_str"
+    fi
 
     local i
-    for (( i=0; i<lines_b1; i++ )); do printf "%b%s\n" "${BLUE}" "${block_line}"; done
-    for (( i=0; i<lines_p1; i++ )); do printf "%b%s\n" "${PINK}" "${block_line}"; done
-    for (( i=0; i<lines_w; i++ ));  do printf "%b%s\n" "${WHITE}" "${block_line}"; done
-    for (( i=0; i<lines_p2; i++ )); do printf "%b%s\n" "${PINK}" "${block_line}"; done
-    for (( i=0; i<lines_b2; i++ )); do printf "%b%s\n" "${BLUE}" "${block_line}"; done
+    #stripe 1
+    for (( i=0; i<lines_b1; i++ )); do
+        printf "%s" "$leading_spaces_str" #apply centering
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi 
+        printf "%b%s" "${BLUE}" "${block_line}" # flag content
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "\n"
+    done
+    #stripe 2
+    for (( i=0; i<lines_p1; i++ )); do
+        printf "%s" "$leading_spaces_str"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "%b%s" "${PINK}" "${block_line}"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "\n"
+    done
+    #stripe 3
+    for (( i=0; i<lines_w;  i++ )); do
+        printf "%s" "$leading_spaces_str"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "%b%s" "${WHITE}" "${block_line}"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "\n"
+    done
+    #stripe 4
+    for (( i=0; i<lines_p2; i++ )); do
+        printf "%s" "$leading_spaces_str"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "%b%s" "${PINK}" "${block_line}"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "\n"
+    done
+    #striple 5
+    for (( i=0; i<lines_b2; i++ )); do
+        printf "%s" "$leading_spaces_str"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "%b%s" "${BLUE}" "${block_line}"
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+        printf "\n"
+    done
+
+    if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
+        printf "%s%b%s\n" "$leading_spaces_str" "$arg_border_color_esc" "$top_bottom_border_line_str"
+    fi
 
     printf "%b" "${RESET}"
     return 0
 }
 
+load_config
 
-flag_size="small"
-req_width=-1
-req_height=-1
-flag_char="█"
+#parse command flags
+declare -a pos_args=() #size preset 
+cli_flag_size_arg=""   #specified size
 
-#argument parsing loop
-declare -a pos_args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -h|--help)
-            print_usage
-            exit 0
-            ;;
+        -h|--help) print_usage; exit 0 ;;
         -w) 
-            if [[ -z "$2" || "$2" =~ ^- ]]; then #if value is missing or is another option
-                echo "Error: Option -w requires a value." >&2
-                print_usage >&2
-                exit 1
-            fi
-            req_width="$2"
-            if ! [[ "$req_width" =~ ^[1-9][0-9]*$ ]]; then
-                echo "Error: Invalid width value '$req_width' for -w. Must be a positive integer." >&2
-                print_usage >&2
-                exit 1
-            fi
-            shift 2 #consume -w and its value
-            ;;
+            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: option -w requires value." >&2; print_usage >&2; exit 1; fi # value missing or is another option
+            if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid width '$2' for -w." >&2; print_usage >&2; exit 1; fi
+            req_width="$2"; shift 2 ;; # consume -w and its value
         --width=*)
-            req_width="${1#*=}"
-            if ! [[ "$req_width" =~ ^[1-9][0-9]*$ ]]; then
-                echo "Error: Invalid width value '$req_width' for --width. Must be a positive integer." >&2
-                print_usage >&2
-                exit 1
-            fi
-            shift 1 #consume --width=value
-            ;;
+            val="${1#*=}"
+            if ! [[ "$val" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid width '$val' for --width." >&2; print_usage >&2; exit 1; fi
+            req_width="$val"; shift 1 ;; # consume --width=value
         -he) 
-             if [[ -z "$2" || "$2" =~ ^- ]]; then
-                echo "Error: Option -he requires a value." >&2
-                print_usage >&2
-                exit 1
-             fi
-             req_height="$2"
-             if ! [[ "$req_height" =~ ^[1-9][0-9]*$ ]]; then
-                  echo "Error: Invalid height value '$req_height' for -he. Must be a positive integer." >&2
-                  print_usage >&2
-                  exit 1
-             fi
-             shift 2 
-             ;;
+            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: option -he requires value." >&2; print_usage >&2; exit 1; fi
+            if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid height '$2' for -he." >&2; print_usage >&2; exit 1; fi
+            if [[ "$2" -lt 5 ]]; then echo "warning: specified height $2 is less than minimum 5. using 5." >&2; req_height=5; else req_height="$2"; fi
+            shift 2 ;;
         --height=*)
-            req_height="${1#*=}"
-            if ! [[ "$req_height" =~ ^[1-9][0-9]*$ ]]; then
-                 echo "Error: Invalid height value '$req_height' for --height. Must be a positive integer." >&2
-                 print_usage >&2
-                 exit 1
-            fi
-            shift 1
-            ;;
-        -c) 
-            if [[ -z "$2" || "$2" =~ ^- ]]; then
-                echo "Error: Option -c requires a value." >&2
-                print_usage >&2
-                exit 1
-            fi
-            flag_char="$2"
-            if [[ ${#flag_char} -ne 1 ]]; then
-                 echo "Error: Value '$flag_char' for -c must be a single character." >&2
-                 print_usage >&2
-                 exit 1
-            fi
-            shift 2 
-            ;;
+            val="${1#*=}"
+            if ! [[ "$val" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid height '$val' for --height." >&2; print_usage >&2; exit 1; fi
+            if [[ "$val" -lt 5 ]]; then echo "warning: specified height $val is less than minimum 5. using 5." >&2; req_height=5; else req_height="$val"; fi
+            shift 1 ;;
+        -c)
+            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: option -c requires value." >&2; print_usage >&2; exit 1; fi
+            if [[ ${#2} -ne 1 ]]; then echo "error: value '$2' for -c must be a single character." >&2; print_usage >&2; exit 1; fi
+            flag_char="$2"; shift 2 ;;
         --char=*)
-            flag_char="${1#*=}"
-            if [[ ${#flag_char} -ne 1 ]]; then
-                 echo "Error: Value '$flag_char' for --char must be a single character." >&2
-                 print_usage >&2
-                 exit 1
-            fi
-            shift 1 
-            ;;
-        --) 
-            shift
-            pos_args+=("$@")
-            break
-            ;;
-        -*) 
-            echo "Error: Unknown option '$1'" >&2
-            print_usage >&2
-            exit 1
-            ;;
-        *) 
-            pos_args+=("$1")
-            shift
-            ;;
+            val="${1#*=}"
+            if [[ ${#val} -ne 1 ]]; then echo "error: value '$val' for --char must be a single character." >&2; print_usage >&2; exit 1; fi
+            flag_char="$val"; shift 1 ;;
+        -C|--center) auto_center_flag=1; shift ;; # enable centering
+        --border) border_enabled_flag=1; shift ;; # enable border with defaults
+        --border-char)
+            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: --border-char requires value." >&2; print_usage >&2; exit 1; fi
+            if [[ ${#2} -ne 1 ]]; then echo "error: border char '$2' must be a single character." >&2; print_usage >&2; exit 1; fi
+            border_char="$2"; border_enabled_flag=1; shift 2 ;; # set border char and enable border
+        --border-color-esc)
+            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: --border-color-esc requires value." >&2; print_usage >&2; exit 1; fi
+            if ! [[ "$2" =~ ^\\033\[.*m$ ]]; then echo "error: invalid ansi escape code for --border-color-esc." >&2; print_usage >&2; exit 1; fi
+            border_color_esc="$2"; border_enabled_flag=1; shift 2 ;; # set border color and enable border
+        --) shift; pos_args+=("$@"); break ;; # end of options
+        -*) echo "error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;; # unknown option
+        *) pos_args+=("$1"); shift ;; # assume positional argument (size preset)
     esac
 done
 
-#handle positional arguments szie preset
+# handle positional arguments (size preset)
 if [[ ${#pos_args[@]} -gt 1 ]]; then
-    echo "Error: Too many arguments. Only one size (small, big, huge) is allowed." >&2
-    print_usage >&2
-    exit 1
+    echo "error: too many arguments. only one size preset allowed." >&2; print_usage >&2; exit 1
 elif [[ ${#pos_args[@]} -eq 1 ]]; then
     size_arg="${pos_args[0]}"
-    if [[ "$size_arg" =~ ^(small|big|huge)$ ]]; then
-        flag_size="$size_arg"
+    if [[ "$size_arg" =~ ^(tiny|small|medium|big|huge|banner)$ ]]; then
+        cli_flag_size_arg="$size_arg"; flag_size="$size_arg" # cli preset overrides config/default size
     else
-        #check if it looks like a misplaced option value after fixing short options
-        if [[ ${#pos_args[@]} -eq 1 && ! "$size_arg" =~ ^- ]]; then
-             echo "Error: Invalid size argument '$size_arg'. Use 'small', 'big', or 'huge'." >&2
-        else
-             
-             echo "Error: Invalid argument or unknown option '$size_arg'." >&2
-        fi
-        print_usage >&2
-        exit 1
+        echo "error: invalid size argument '$size_arg'. use tiny, small, medium, big, huge, or banner." >&2; print_usage >&2; exit 1
     fi
 fi
 
+# 3. determine final dimensions for flag content
 final_width=0
 final_height=0
-check_terminal=0
+check_terminal_height_warning=0 # flag to trigger terminal height check for 'huge' or 'banner'
 TPUT_AVAILABLE=1
-if ! command -v tput &> /dev/null; then TPUT_AVAILABLE=0; fi
+if ! command -v tput &> /dev/null; then TPUT_AVAILABLE=0; fi # check tput once
 
-#calculate width
-if [[ "$req_width" -gt 0 ]]; then
+# determine width for flag content
+if [[ "$req_width" -gt 0 ]]; then # if width was set by -w/--width or config (TRANS_DEFAULT_WIDTH)
     final_width="$req_width"
-else
+else # width not explicitly set, use preset
     case "$flag_size" in
-        small) final_width=39 ;;
-        big)   final_width=48 ;;
-        huge)
+        tiny)   final_width=20 ;;
+        small)  final_width=39 ;;
+        medium) final_width=42 ;;
+        big)    final_width=48 ;;
+        huge|banner) # both huge and banner try to use terminal width
             detected_width=0
             if [[ "$TPUT_AVAILABLE" -eq 1 ]]; then
-                if ! detected_width=$(tput cols); then
-                     echo "Warning: 'tput cols' command failed. Using default huge width (80)." >&2
-                     detected_width=0
+                if ! detected_width=$(tput cols); then # try to get terminal columns
+                    echo "warning: 'tput cols' command failed. using default width for '$flag_size' (80)." >&2
+                    detected_width=0 # ensure it's not the failed command output
                 fi
             fi
-            if [[ "$detected_width" =~ ^[1-9][0-9]*$ ]]; then
+            if [[ "$detected_width" =~ ^[1-9][0-9]*$ ]]; then # if tput gave a valid positive integer
                 final_width="$detected_width"
-            else
-                 if [[ "$TPUT_AVAILABLE" -eq 1 && "$detected_width" != "0" ]]; then
-                      echo "Warning: Could not determine terminal width via tput (got '$detected_width'). Using default huge width (80)." >&2
-                 elif [[ "$TPUT_AVAILABLE" -eq 0 ]]; then
-                      echo "Warning: 'tput' unavailable. Using default huge width (80)." >&2
-                 fi
-                 final_width=80 
-            fi
-            ;;
+            else # tput failed or returned invalid, or tput not available
+                default_dynamic_width=80
+                if [[ "$TPUT_AVAILABLE" -eq 1 && "$detected_width" != "0" && -n "$detected_width" ]]; then # tput ran but output was bad
+                    echo "warning: could not determine terminal width via tput (got '$detected_width'). using default width for '$flag_size' ($default_dynamic_width)." >&2
+                elif [[ "$TPUT_AVAILABLE" -eq 0 ]]; then # tput not available
+                    echo "warning: 'tput' unavailable. using default width for '$flag_size' ($default_dynamic_width)." >&2
+                fi
+                final_width="$default_dynamic_width"
+            fi ;;
     esac
 fi
 
-#calculate height
-if [[ "$req_height" -gt 0 ]]; then
+#determine height
+if [[ "$req_height" -gt 0 ]]; then # if height was set by flags or config
     final_height="$req_height"
-else
-    case "$flag_size" in
-        small) final_height=12 ;;
-        big)   final_height=17 ;;
-        huge)  final_height=34 ;;
-    esac
-    if [[ "$flag_size" == "huge" ]]; then
-        check_terminal=1
+    if [[ "$flag_size" == "huge" || "$flag_size" == "banner" ]] && [[ "$final_height" -gt 20 ]]; then
+        check_terminal_height_warning=1
     fi
+else # height not set by flags, use preset
+    case "$flag_size" in
+        tiny)   final_height=5 ;;
+        small)  final_height=12 ;;
+        medium) final_height=15 ;;
+        big)    final_height=17 ;;
+        banner) final_height=15 ;;
+        huge)   final_height=34; check_terminal_height_warning=1 ;; 
+    esac
 fi
 
-#sanity check
+#sanity checks for final dimensions 
 if [[ "$final_width" -lt 1 ]]; then final_width=1; fi
 if [[ "$final_height" -lt 5 ]]; then final_height=5; fi
 
-DRAW_FLAG "$final_width" "$final_height" "$check_terminal" "$flag_char"
+DRAW_FLAG "$final_width" "$final_height" "$check_terminal_height_warning" \
+          "$flag_char" "$auto_center_flag" "$border_enabled_flag" \
+          "$border_char" "$border_color_esc"
 
 exit $?
