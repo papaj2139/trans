@@ -1,5 +1,7 @@
 # trans
 
+(DEPRECATED, there's a new version made in C)
+
 literally just prints the trans flag to your terminal, supports multiple sizes, custom dimensions, borders, centering, and a configuration file
 
 ![trans](https://github.com/papaj2139/trans/blob/main/sc.png)
