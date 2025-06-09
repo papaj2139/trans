@@ -1,6 +1,6 @@
 # trans
 
-(DEPRECATED, there's a new version made in C)
+(DEPRECATED SOON, there will be a new version made in C)
 
 literally just prints the trans flag to your terminal, supports multiple sizes, custom dimensions, borders, centering, and a configuration file
 
@@ -170,7 +170,7 @@ if you moved the script to a system-wide location (like `/usr/local/bin`) during
 sudo rm /usr/local/bin/trans
 ```
 
-if you only cloned it and ran it from the directory, simply delete the cloned folder:
+if you only cloned it and ran it from the directory, simply delete the cloned directory:
 
 ```bash
 rm -rf trans
