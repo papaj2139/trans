@@ -7,14 +7,21 @@ PINK='\033[38;2;255;105;180m'
 WHITE='\033[38;2;255;255;255m'
 RESET='\033[0m'
 
+DATE_TEXT_COLOR_ESC="$WHITE"
+
 DEFAULT_FLAG_SIZE="small"
 DEFAULT_FLAG_CHAR="█"
 DEFAULT_REQ_WIDTH=-1
 DEFAULT_REQ_HEIGHT=-1
 DEFAULT_AUTO_CENTER=0
-DEFAULT_BORDER_ENABLED=0 
+DEFAULT_BORDER_ENABLED=0
 DEFAULT_BORDER_CHAR="*"
-DEFAULT_BORDER_COLOR_ESC='\033[38;2;180;180;180m' 
+DEFAULT_BORDER_COLOR_ESC='\033[38;2;180;180;180m'
+DEFAULT_MESSAGE_TEXT=""
+DEFAULT_MESSAGE_TEXT_COLOR_ESC="$PINK"
+DEFAULT_DATE_ENABLED=0
+DEFAULT_DATE_FORMAT="+%Y-%m-%d %H:%M"
+DEFAULT_VERTICAL_ENABLED=0
 
 flag_size="$DEFAULT_FLAG_SIZE"
 flag_char="$DEFAULT_FLAG_CHAR"
@@ -24,6 +31,11 @@ auto_center_flag="$DEFAULT_AUTO_CENTER"
 border_enabled_flag="$DEFAULT_BORDER_ENABLED"
 border_char="$DEFAULT_BORDER_CHAR"
 border_color_esc="$DEFAULT_BORDER_COLOR_ESC"
+message_text="$DEFAULT_MESSAGE_TEXT"
+message_text_color_esc="$DEFAULT_MESSAGE_TEXT_COLOR_ESC"
+date_enabled_flag="$DEFAULT_DATE_ENABLED"
+date_format_str="$DEFAULT_DATE_FORMAT"
+vertical_enabled_flag="$DEFAULT_VERTICAL_ENABLED"
 
 CONFIG_FILE_USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/transrc"
 CONFIG_FILE_HOME_DIR="$HOME/.transrc"
@@ -40,6 +52,10 @@ print_usage() {
   echo "      --border            Enable a border around the flag (uses default char/color)."
   echo "      --border-char CH    Set specific border character (enables border)."
   echo "      --border-color-esc ESC Set specific ANSI escape code for border color (enables border)."
+  echo "  -m TEXT, --message=TEXT Display TEXT on the flag."
+  echo "      --message-color-esc ESC Set ANSI escape code for message color (default: flag pink)."
+  echo "      --date[=FORMAT]     Show current date/time in corner. Optional FORMAT for date command."
+  echo "      --vertical          Rotate the flag 90 degrees (vertical stripes)."
   echo "  -h, --help              Show this help message and exit."
   echo ""
   echo "Size Presets (used if width/height not specified via options or config):"
@@ -53,14 +69,19 @@ print_usage() {
   echo "Configuration File:"
   echo "  Loads settings from: \$XDG_CONFIG_HOME/transrc or ~/.transrc"
   echo "  Supported config variables (e.g., TRANS_DEFAULT_SIZE=\"big\"):"
-  echo "    TRANS_DEFAULT_SIZE:   Default size preset (e.g., \"small\", \"huge\")."
-  echo "    TRANS_DEFAULT_CHAR:   Default drawing character (e.g., \"*\")."
-  echo "    TRANS_DEFAULT_WIDTH:  Default width (e.g., 50)."
-  echo "    TRANS_DEFAULT_HEIGHT: Default height (e.g., 20, min 5)."
+  echo "    TRANS_DEFAULT_SIZE:   Default size preset."
+  echo "    TRANS_DEFAULT_CHAR:   Default drawing character."
+  echo "    TRANS_DEFAULT_WIDTH:  Default width."
+  echo "    TRANS_DEFAULT_HEIGHT: Default height."
   echo "    TRANS_AUTO_CENTER:    Enable centering ('true' or 'false')."
   echo "    TRANS_BORDER_ENABLED: Enable border ('true' or 'false')."
-  echo "    TRANS_BORDER_CHAR:    Default border character (e.g., \"+\")."
-  echo "    TRANS_BORDER_COLOR_ESC: ANSI escape code for border color (e.g., \"\033[38;2;100;100;100m\")."
+  echo "    TRANS_BORDER_CHAR:    Default border character."
+  echo "    TRANS_BORDER_COLOR_ESC: ANSI escape code for border color."
+  echo "    TRANS_MESSAGE_TEXT:   Default message text."
+  echo "    TRANS_MESSAGE_COLOR_ESC: ANSI escape code for message text color."
+  echo "    TRANS_DATE_ENABLED:   Enable date display ('true' or 'false')."
+  echo "    TRANS_DATE_FORMAT:    Default date format string."
+  echo "    TRANS_VERTICAL_ENABLED: Draw flag vertically ('true' or 'false')."
   echo ""
   echo "Precedence: Command-line arguments > Configuration file settings > Script defaults."
 }
@@ -69,116 +90,100 @@ load_config() {
     local loaded_config_file=""
     if [[ -f "$CONFIG_FILE_USER_CONFIG_DIR" ]]; then
         # shellcheck source=/dev/null
-        . "$CONFIG_FILE_USER_CONFIG_DIR" 
-        loaded_config_file="$CONFIG_FILE_USER_CONFIG_DIR"
+        . "$CONFIG_FILE_USER_CONFIG_DIR"
     elif [[ -f "$CONFIG_FILE_HOME_DIR" ]]; then
         . "$CONFIG_FILE_HOME_DIR"
-        loaded_config_file="$CONFIG_FILE_HOME_DIR"
     fi
 
-    #override script defaults with config values if they are set
+    # override script defaults with config values if they are set
     if [[ -n "${TRANS_DEFAULT_SIZE-}" ]]; then
-        if [[ "$TRANS_DEFAULT_SIZE" =~ ^(tiny|small|medium|big|huge|banner)$ ]]; then
-            flag_size="$TRANS_DEFAULT_SIZE"
-        else
-            echo "warning (config): invalid TRANS_DEFAULT_SIZE '$TRANS_DEFAULT_SIZE'." >&2
-        fi
+        if [[ "$TRANS_DEFAULT_SIZE" =~ ^(tiny|small|medium|big|huge|banner)$ ]]; then flag_size="$TRANS_DEFAULT_SIZE"; else echo "warning (config): invalid TRANS_DEFAULT_SIZE '$TRANS_DEFAULT_SIZE'." >&2; fi
     fi
     if [[ -n "${TRANS_DEFAULT_CHAR-}" ]]; then
-        if [[ ${#TRANS_DEFAULT_CHAR} -eq 1 ]]; then
-            flag_char="$TRANS_DEFAULT_CHAR"
-        else
-            echo "warning (config): invalid TRANS_DEFAULT_CHAR '$TRANS_DEFAULT_CHAR'. must be single char." >&2
-        fi
+        if [[ ${#TRANS_DEFAULT_CHAR} -eq 1 ]]; then flag_char="$TRANS_DEFAULT_CHAR"; else echo "warning (config): invalid TRANS_DEFAULT_CHAR." >&2; fi
     fi
     if [[ -n "${TRANS_DEFAULT_WIDTH-}" ]]; then
-        if [[ "$TRANS_DEFAULT_WIDTH" =~ ^[1-9][0-9]*$ ]]; then # ensure positive integer
-            req_width="$TRANS_DEFAULT_WIDTH"
-        else
-            echo "warning (config): invalid TRANS_DEFAULT_WIDTH '$TRANS_DEFAULT_WIDTH'." >&2
-        fi
+        if [[ "$TRANS_DEFAULT_WIDTH" =~ ^[1-9][0-9]*$ ]]; then req_width="$TRANS_DEFAULT_WIDTH"; else echo "warning (config): invalid TRANS_DEFAULT_WIDTH." >&2; fi
     fi
     if [[ -n "${TRANS_DEFAULT_HEIGHT-}" ]]; then
-        if [[ "$TRANS_DEFAULT_HEIGHT" =~ ^[1-9][0-9]*$ && "$TRANS_DEFAULT_HEIGHT" -ge 5 ]]; then # ensure positive integer >= 5
-            req_height="$TRANS_DEFAULT_HEIGHT"
-        elif [[ "$TRANS_DEFAULT_HEIGHT" =~ ^[1-9][0-9]*$ && "$TRANS_DEFAULT_HEIGHT" -lt 5 ]]; then
-            echo "warning (config): TRANS_DEFAULT_HEIGHT '$TRANS_DEFAULT_HEIGHT' < 5. setting to 5." >&2
-            req_height=5
-        else
-            echo "warning (config): invalid TRANS_DEFAULT_HEIGHT '$TRANS_DEFAULT_HEIGHT'." >&2
-        fi
+        if [[ "$TRANS_DEFAULT_HEIGHT" =~ ^[1-9][0-9]*$ && "$TRANS_DEFAULT_HEIGHT" -ge 5 ]]; then req_height="$TRANS_DEFAULT_HEIGHT";
+        elif [[ "$TRANS_DEFAULT_HEIGHT" =~ ^[1-9][0-9]*$ && "$TRANS_DEFAULT_HEIGHT" -lt 5 ]]; then echo "warning (config): TRANS_DEFAULT_HEIGHT < 5. setting to 5." >&2; req_height=5;
+        else echo "warning (config): invalid TRANS_DEFAULT_HEIGHT." >&2; fi
     fi
-
     if [[ -n "${TRANS_AUTO_CENTER-}" ]]; then
-        if [[ "$TRANS_AUTO_CENTER" == "true" ]]; then auto_center_flag=1;
-        elif [[ "$TRANS_AUTO_CENTER" == "false" ]]; then auto_center_flag=0;
-        else echo "warning (config): invalid TRANS_AUTO_CENTER. use 'true' or 'false'." >&2; fi
+        if [[ "$TRANS_AUTO_CENTER" == "true" ]]; then auto_center_flag=1; elif [[ "$TRANS_AUTO_CENTER" == "false" ]]; then auto_center_flag=0; else echo "warning (config): invalid TRANS_AUTO_CENTER." >&2; fi
     fi
     if [[ -n "${TRANS_BORDER_ENABLED-}" ]]; then
-        if [[ "$TRANS_BORDER_ENABLED" == "true" ]]; then border_enabled_flag=1;
-        elif [[ "$TRANS_BORDER_ENABLED" == "false" ]]; then border_enabled_flag=0;
-        else echo "warning (config): invalid TRANS_BORDER_ENABLED. use 'true' or 'false'." >&2; fi
+        if [[ "$TRANS_BORDER_ENABLED" == "true" ]]; then border_enabled_flag=1; elif [[ "$TRANS_BORDER_ENABLED" == "false" ]]; then border_enabled_flag=0; else echo "warning (config): invalid TRANS_BORDER_ENABLED." >&2; fi
     fi
     if [[ -n "${TRANS_BORDER_CHAR-}" ]]; then
-        if [[ ${#TRANS_BORDER_CHAR} -eq 1 ]]; then
-            border_char="$TRANS_BORDER_CHAR"
-        else
-            echo "warning (config): invalid TRANS_BORDER_CHAR. must be single char." >&2
-        fi
+        if [[ ${#TRANS_BORDER_CHAR} -eq 1 ]]; then border_char="$TRANS_BORDER_CHAR"; else echo "warning (config): invalid TRANS_BORDER_CHAR." >&2; fi
     fi
     if [[ -n "${TRANS_BORDER_COLOR_ESC-}" ]]; then
-        if [[ "$TRANS_BORDER_COLOR_ESC" =~ ^\\033\[.*m$ ]]; then 
-            border_color_esc="$TRANS_BORDER_COLOR_ESC"
-        else
-            echo "warning (config): invalid TRANS_BORDER_COLOR_ESC format." >&2
-        fi
+        if [[ "$TRANS_BORDER_COLOR_ESC" =~ ^\\033\[.*m$ ]]; then border_color_esc="$TRANS_BORDER_COLOR_ESC"; else echo "warning (config): invalid TRANS_BORDER_COLOR_ESC format." >&2; fi
+    fi
+    if [[ -n "${TRANS_MESSAGE_TEXT-}" ]]; then message_text="$TRANS_MESSAGE_TEXT"; fi
+    if [[ -n "${TRANS_MESSAGE_COLOR_ESC-}" ]]; then
+        if [[ "$TRANS_MESSAGE_COLOR_ESC" =~ ^\\033\[.*m$ ]]; then message_text_color_esc="$TRANS_MESSAGE_COLOR_ESC"; else echo "warning (config): invalid TRANS_MESSAGE_COLOR_ESC format." >&2; fi
+    fi
+    if [[ -n "${TRANS_DATE_ENABLED-}" ]]; then
+        if [[ "$TRANS_DATE_ENABLED" == "true" ]]; then date_enabled_flag=1; elif [[ "$TRANS_DATE_ENABLED" == "false" ]]; then date_enabled_flag=0; else echo "warning (config): invalid TRANS_DATE_ENABLED." >&2; fi
+    fi
+    if [[ -n "${TRANS_DATE_FORMAT-}" ]]; then date_format_str="$TRANS_DATE_FORMAT"; fi
+    if [[ -n "${TRANS_VERTICAL_ENABLED-}" ]]; then
+        if [[ "$TRANS_VERTICAL_ENABLED" == "true" ]]; then vertical_enabled_flag=1; elif [[ "$TRANS_VERTICAL_ENABLED" == "false" ]]; then vertical_enabled_flag=0; else echo "warning (config): invalid TRANS_VERTICAL_ENABLED." >&2; fi
     fi
 }
 
 calculate_stripes() {
-    local total_h=$1
+    local total_dim=$1 
+    local is_vertical=$2
+
     local p_blue1=8 p_pink1=6 p_white=6 p_pink2=6 p_blue2=8
     local total_p=$((p_blue1 + p_pink1 + p_white + p_pink2 + p_blue2))
 
     # ensure minimum height of 5
-    if [[ "$total_h" -lt 5 ]]; then total_h=5; fi
+    local min_dim_size=5 #min lines for horizontal, min columns for vertical
+    if [[ "$total_dim" -lt "$min_dim_size" ]]; then total_dim="$min_dim_size"; fi
 
     #calculate integer parts using integer arithmetic
-    local lines_b1=$(( total_h * p_blue1 / total_p ))
-    local lines_p1=$(( total_h * p_pink1 / total_p ))
-    local lines_w=$((  total_h * p_white / total_p ))
-    local lines_p2=$(( total_h * p_pink2 / total_p ))
-    local lines_b2=$(( total_h * p_blue2 / total_p ))
+    local dim_b1=$(( total_dim * p_blue1 / total_p ))
+    local dim_p1=$(( total_dim * p_pink1 / total_p ))
+    local dim_w=$((  total_dim * p_white / total_p ))
+    local dim_p2=$(( total_dim * p_pink2 / total_p ))
+    local dim_b2=$(( total_dim * p_blue2 / total_p ))
+    
+    local min_stripe_dim=1
+    #ensure each stripe gets at least one line
+    [[ "$dim_b1" -lt "$min_stripe_dim" ]] && dim_b1=$min_stripe_dim
+    [[ "$dim_p1" -lt "$min_stripe_dim" ]] && dim_p1=$min_stripe_dim
+    [[ "$dim_w"  -lt "$min_stripe_dim" ]] && dim_w=$min_stripe_dim
+    [[ "$dim_p2" -lt "$min_stripe_dim" ]] && dim_p2=$min_stripe_dim
+    [[ "$dim_b2" -lt "$min_stripe_dim" ]] && dim_b2=$min_stripe_dim
+
+    local current_sum=$(( dim_b1 + dim_p1 + dim_w + dim_p2 + dim_b2 ))
+    local remainder=$(( total_dim - current_sum ))
 
     #distribute remainder to ensure total_h is met
-    local calculated_h=$(( lines_b1 + lines_p1 + lines_w + lines_p2 + lines_b2 ))
-    local remainder=$(( total_h - calculated_h ))
-
-    #ensure each stripe gets at least one line if possible, especially if total_h is very small
-    if [[ "$lines_b1" -eq 0 ]]; then ((lines_b1++)); ((remainder--)); fi
-    if [[ "$lines_p1" -eq 0 && "$remainder" -gt 0 ]]; then ((lines_p1++)); ((remainder--)); fi
-    if [[ "$lines_w"  -eq 0 && "$remainder" -gt 0 ]]; then ((lines_w++));  ((remainder--)); fi
-    if [[ "$lines_p2" -eq 0 && "$remainder" -gt 0 ]]; then ((lines_p2++)); ((remainder--)); fi
-    if [[ "$lines_b2" -eq 0 && "$remainder" -gt 0 ]]; then ((lines_b2++)); ((remainder--)); fi
-    
     while [[ "$remainder" -ne 0 ]]; do
-        if [[ "$remainder" -gt 0 ]]; then 
-            ((lines_b1++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
-            ((lines_b2++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
-            ((lines_p1++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
-            ((lines_p2++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
-            ((lines_w++));  ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+        if [[ "$remainder" -gt 0 ]]; then
+            ((dim_b1++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((dim_b2++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((dim_p1++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((dim_p2++)); ((remainder--)); [[ "$remainder" -eq 0 ]] && break
+            ((dim_w++));  ((remainder--));
         elif [[ "$remainder" -lt 0 ]]; then 
-            if [[ "$lines_w" -gt 1 ]]; then ((lines_w--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
-            if [[ "$lines_p1" -gt 1 ]]; then ((lines_p1--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
-            if [[ "$lines_p2" -gt 1 ]]; then ((lines_p2--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
-            if [[ "$lines_b1" -gt 1 ]]; then ((lines_b1--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
-            if [[ "$lines_b2" -gt 1 ]]; then ((lines_b2--)); ((remainder++)); [[ "$remainder" -eq 0 ]] && break; fi
-
-            break 
+            #try to take from stripes if they are larger than minimum
+            if [[ "$dim_w"  -gt "$min_stripe_dim" ]]; then ((dim_w--));  ((remainder++)); elif \
+               [[ "$dim_p1" -gt "$min_stripe_dim" ]]; then ((dim_p1--)); ((remainder++)); elif \
+               [[ "$dim_p2" -gt "$min_stripe_dim" ]]; then ((dim_p2--)); ((remainder++)); elif \
+               [[ "$dim_b1" -gt "$min_stripe_dim" ]]; then ((dim_b1--)); ((remainder++)); elif \
+               [[ "$dim_b2" -gt "$min_stripe_dim" ]]; then ((dim_b2--)); ((remainder++)); else break; #can'treduce further
+            fi
         fi
+        [[ "$remainder" -eq 0 ]] && break #exit if remainder is zeroed
     done
-    echo "$lines_b1 $lines_p1 $lines_w $lines_p2 $lines_b2"
+    echo "$dim_b1 $dim_p1 $dim_w $dim_p2 $dim_b2"
 }
 
 DRAW_FLAG() {
@@ -190,192 +195,250 @@ DRAW_FLAG() {
     local arg_border_enabled_flag=${6}
     local arg_border_char=${7}
     local arg_border_color_esc=${8}
+    local arg_message_text="${9}"
+    local arg_date_enabled_flag="${10}"
+    local arg_date_format_str="${11}"
+    local arg_message_text_color_esc="${12}"
+    local arg_vertical_enabled_flag="${13}"
 
     local TPUT_AVAILABLE=1
     if ! command -v tput &> /dev/null; then TPUT_AVAILABLE=0; fi
 
     local effective_total_height="$flag_content_height"
+    local effective_total_width="$flag_content_width"
     if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
-        effective_total_height=$((effective_total_height + 2)) 
+        effective_total_height=$((effective_total_height + 2))
+        effective_total_width=$((effective_total_width + 2))
     fi
-
+    
     # check terminal height
     if [[ "$arg_check_terminal_height_warning" -eq 1 && "$TPUT_AVAILABLE" -eq 1 ]]; then
         local term_lines
         if ! term_lines=$(tput lines); then
             echo "warning: 'tput lines' command failed. cannot check terminal height." >&2
         elif [[ "$term_lines" -lt "$effective_total_height" ]]; then
-            echo -e "${WHITE}warning: your terminal (height: $term_lines) might be too small for the flag (height: $effective_total_height)."
-            echo -e "please make it full screen or reduce height for best results.${RESET}"
-            local response
-            read -p "proceed anyway? [y/N] " -n 1 -r response
-            echo # newline after read -n
-            if [[ ! "$response" =~ ^[Yy]$ ]]; then
-                echo "operation cancelled."
-                return 1
-            fi
+            echo -e "${WHITE}warning: your terminal (height: $term_lines) might be too small for the flag (height: $effective_total_height).${RESET}" >&1
+            local response; read -p "proceed anyway? [y/N] " -n 1 -r response </dev/tty; echo >&1
+            if [[ ! "$response" =~ ^[Yy]$ ]]; then echo "operation cancelled." >&1; return 1; fi
         fi
     fi
 
-    #get calculated stripe line counts for the flag height
-    local lines_b1 lines_p1 lines_w lines_p2 lines_b2
-    read -r lines_b1 lines_p1 lines_w lines_p2 lines_b2 <<< "$(calculate_stripes "$flag_content_height")"
-
-    local block_line
-    if ! command -v seq &> /dev/null; then
-        block_line=""
-        local j
-        for ((j=0; j<flag_content_width; j++)); do block_line+="${arg_draw_char}"; done
-    else
-        #ensure int is positive
-        if ! [[ "$flag_content_width" =~ ^[0-9]+$ ]]; then
-             echo "error: invalid width for seq ($flag_content_width)." >&2; return 1
+    local block_line="" #used for horizontal flag
+    if [[ "$arg_vertical_enabled_flag" -eq 0 && "$flag_content_width" -gt 0 ]]; then
+        block_line=$(printf "%0.s${arg_draw_char}" $(seq 1 "$flag_content_width" 2>/dev/null))
+        if [[ -z "$block_line" ]]; then #fallback to loop if seq or the printf trick failed
+            for ((j=0; j<flag_content_width; j++)); do block_line+="${arg_draw_char}"; done
         fi
-        if [[ "$flag_content_width" -gt 0 ]]; then
-            block_line=$(printf "%.0s${arg_draw_char}" $(seq 1 "$flag_content_width"))
-        else
-            block_line=""
+         # ensures block_line was generated if width > 0
+         if [[ "$flag_content_width" -gt 0 && -z "$block_line" ]]; then
+            echo "error: failed to generate flag line content for width $flag_content_width." >&2
+            return 1
         fi
-    fi
-     
-    # ensures block_line was generated if width > 0
-    if [[ -z "$block_line" && "$flag_content_width" -gt 0 ]]; then
-        echo "error: failed to generate flag line content for width $flag_content_width." >&2
-        return 1
-    fi
-
-    # calculate total width
-    local actual_drawn_width="$flag_content_width"
-    if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
-        actual_drawn_width=$((actual_drawn_width + 2))
     fi
 
     #calculates leading spaces for centering
     local leading_spaces_str=""
     if [[ "$arg_auto_center_flag" -eq 1 && "$TPUT_AVAILABLE" -eq 1 ]]; then
-        local term_cols_val
-        if term_cols_val=$(tput cols); then # get terminal width
-            if [[ "$term_cols_val" -gt "$actual_drawn_width" ]]; then
-                local padding_val=$(( (term_cols_val - actual_drawn_width) / 2 ))
-                if [[ "$padding_val" -gt 0 ]]; then
-                    leading_spaces_str=$(printf "%${padding_val}s" "")
-                fi
-            fi
-        elif [[ "$arg_check_terminal_height_warning" -eq 0 ]]; then #only warns if not already warned by height check logic
-            echo "warning: 'tput cols' failed, cannot center flag." >&2
+        local term_cols_val; term_cols_val=$(tput cols) # get terminal width
+        local width_for_centering="$effective_total_width"
+        
+        if [[ -n "$term_cols_val" && "$term_cols_val" -gt "$width_for_centering" ]]; then
+            local padding_val=$(( (term_cols_val - width_for_centering) / 2 ))
+            if [[ "$padding_val" -gt 0 ]]; then leading_spaces_str=$(printf "%${padding_val}s" ""); fi
+        elif [[ "$arg_check_terminal_height_warning" -eq 0 ]]; then #only warns if not already warned by height check
+            echo "warning: 'tput cols' failed or terminal too narrow for centering." >&2
         fi
     fi
+    
+    local date_display_str="" date_display_str_len=0 
+    local message_display_line_idx=-1 message_text_len=${#arg_message_text}
+    if [[ "$arg_date_enabled_flag" -eq 1 ]]; then
+        if ! date_display_str=$(date +"$arg_date_format_str" 2>/dev/null); then
+            echo "warning: failed to format date with '$arg_date_format_str'. Using default." >&2
+            date_display_str=$(date +"%Y-%m-%d %H:%M" 2>/dev/null)
+        fi
+        date_display_str_len=${#date_display_str}
+    fi
 
-    #generate border if enabed
-    local top_bottom_border_line_str=""
-    if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
-        local k
-        for ((k=0; k<actual_drawn_width; k++)); do #border line spans the whole actual_drawn_width
-            top_bottom_border_line_str+="${arg_border_char}"
+    if [[ "$arg_vertical_enabled_flag" -eq 1 ]]; then
+        #vertical drawing:
+        local stripe_w_b1 stripe_w_p1 stripe_w_w stripe_w_p2 stripe_w_b2
+        read -r stripe_w_b1 stripe_w_p1 stripe_w_w stripe_w_p2 stripe_w_b2 <<< "$(calculate_stripes "$flag_content_width" 1)"
+        
+        local stripe_widths_vert=($stripe_w_b1 $stripe_w_p1 $stripe_w_w $stripe_w_p2 $stripe_w_b2)
+        local stripe_colors_vert=("$BLUE" "$PINK" "$WHITE" "$PINK" "$BLUE")
+
+        if [[ -n "$arg_message_text" ]]; then #message line for vertical flag
+             message_display_line_idx=$(( flag_content_height / 2 ))
+        fi
+
+        # generate border if enabed
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
+            printf "%s" "$leading_spaces_str"
+            for ((k=0; k<flag_content_width + 2 ; k++)); do printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; done
+            printf "%b\n" "$RESET"
+        fi
+
+        for ((h=0; h < flag_content_height; h++)); do #iterate each line
+            printf "%s" "$leading_spaces_str"
+            if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+
+            if [[ "$h" -eq "$message_display_line_idx" && "$message_text_len" -gt 0 ]]; then
+                # draw horizontal message on this line of the vertical flag
+                local msg_start_col=$(((flag_content_width - message_text_len) / 2))
+                local msg_char_idx=0
+                for ((char_k=0; char_k<flag_content_width; char_k++)); do
+                    if [[ "$char_k" -ge "$msg_start_col" && "$msg_char_idx" -lt "$message_text_len" ]]; then
+                        printf "%b%s" "$arg_message_text_color_esc" "${arg_message_text:$msg_char_idx:1}"
+                        ((msg_char_idx++))
+                    else #print underlying vertical stripe char
+                        local current_stripe_color_v=""
+                        local temp_col_tracker=0
+                        for stripe_v_idx_s in "${!stripe_widths_vert[@]}"; do
+                            temp_col_tracker=$((temp_col_tracker + ${stripe_widths_vert[$stripe_v_idx_s]}))
+                            if [[ "$char_k" -lt "$temp_col_tracker" ]]; then
+                                current_stripe_color_v="${stripe_colors_vert[$stripe_v_idx_s]}"
+                                break
+                            fi
+                        done
+                        printf "%b%s" "$current_stripe_color_v" "$arg_draw_char"
+                    fi
+                done
+            else
+                #standard vertical stripe drawing for this line
+                local current_col_cursor=0
+                for stripe_idx_vert in "${!stripe_widths_vert[@]}"; do
+                    local width_of_this_stripe="${stripe_widths_vert[$stripe_idx_vert]}"
+                    local color_of_this_stripe="${stripe_colors_vert[$stripe_idx_vert]}"
+                    for ((sw=0; sw < width_of_this_stripe; sw++)); do
+                        #date overlay for vertical flag (top-left corner, h=0)
+                        if [[ "$arg_date_enabled_flag" -eq 1 && "$h" -eq 0 && "$current_col_cursor" -lt "$date_display_str_len" ]]; then
+                             printf "%b%s" "$DATE_TEXT_COLOR_ESC" "${date_display_str:$current_col_cursor:1}"
+                        else
+                             printf "%b%s" "$color_of_this_stripe" "$arg_draw_char"
+                        fi
+                        current_col_cursor=$((current_col_cursor+1))
+                    done
+                done
+            fi
+            
+            if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+            printf "%b\n" "$RESET"
         done
-        printf "%s%b%s\n" "$leading_spaces_str" "$arg_border_color_esc" "$top_bottom_border_line_str"
+
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then #bottom border for vertical
+            printf "%s" "$leading_spaces_str"
+            for ((k=0; k<flag_content_width + 2 ; k++)); do printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; done
+            printf "%b\n" "$RESET"
+        fi
+    else
+        # horizontal:
+        # generate border if enabed
+        local top_bottom_border_line_str_h=""
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
+            for ((k=0; k<effective_total_width-2; k++)); do top_bottom_border_line_str_h+="${arg_border_char}"; done
+             printf "%s%b%s%s%s%b\n" "$leading_spaces_str" "$arg_border_color_esc" "$arg_border_char" "$top_bottom_border_line_str_h" "$arg_border_char" "$RESET"
+        fi
+
+        # get calculated stripe line counts for the flag height
+        local lines_b1 lines_p1 lines_w lines_p2 lines_b2
+        read -r lines_b1 lines_p1 lines_w lines_p2 lines_b2 <<< "$(calculate_stripes "$flag_content_height" 0)"
+
+        if [[ -n "$arg_message_text" && "$lines_w" -gt 0 ]]; then #message line for horizontal flag
+            message_display_line_idx=$(( lines_b1 + lines_p1 + lines_w / 2 ))
+        fi
+        
+        local current_abs_line_idx_h=0
+        #inner function for horizontal stripes
+        print_horizontal_stripe_lines() {
+            local stripe_color_arg="$1" num_lines="$2" i current_line_visual_content=""
+            for (( i=0; i<num_lines; i++ )); do
+                current_line_visual_content="$block_line" #base characters for the line
+                
+                #date Overlay (top-right of flag content, absolute line 0)
+                if [[ "$arg_date_enabled_flag" -eq 1 && "$current_abs_line_idx_h" -eq 0 && "$date_display_str_len" -gt 0 && "$flag_content_width" -gt 0 ]]; then
+                    if [[ "$flag_content_width" -ge "$date_display_str_len" ]]; then
+                        local date_prefix_len=$((flag_content_width - date_display_str_len))
+                        current_line_visual_content="${block_line:0:$date_prefix_len}${DATE_TEXT_COLOR_ESC}${date_display_str}${stripe_color_arg}"
+                    else 
+                        current_line_visual_content="${DATE_TEXT_COLOR_ESC}${date_display_str:0:$flag_content_width}${stripe_color_arg}"
+                    fi
+                fi
+
+                #message Overlay (centered on its line)
+                if [[ "$message_text_len" -gt 0 && "$current_abs_line_idx_h" -eq "$message_display_line_idx" && "$flag_content_width" -gt 0 ]]; then
+                    if [[ "$flag_content_width" -ge "$message_text_len" ]]; then
+                        local msg_padding_total=$((flag_content_width - message_text_len))
+                        local msg_padding_left=$((msg_padding_total / 2))
+                        local msg_suffix_start_idx=$((msg_padding_left + message_text_len))
+                        current_line_visual_content="${block_line:0:$msg_padding_left}${arg_message_text_color_esc}${arg_message_text}${stripe_color_arg}${block_line:$msg_suffix_start_idx}"
+                    else 
+                        current_line_visual_content="${arg_message_text_color_esc}${arg_message_text:0:$flag_content_width}${stripe_color_arg}"
+                    fi
+                fi
+
+                #apply centering
+                printf "%s" "$leading_spaces_str"
+                if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+                # flag content
+                printf "%b%b" "${stripe_color_arg}" "${current_line_visual_content}"
+                if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
+                printf "%b\n" "$RESET"
+                ((current_abs_line_idx_h++))
+            done
+        }
+
+        print_horizontal_stripe_lines "$BLUE" "$lines_b1"
+        print_horizontal_stripe_lines "$PINK" "$lines_p1"
+        print_horizontal_stripe_lines "$WHITE" "$lines_w"
+        print_horizontal_stripe_lines "$PINK" "$lines_p2"
+        print_horizontal_stripe_lines "$BLUE" "$lines_b2"
+
+        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then #bottom border for horizontal
+             printf "%s%b%s%s%s%b\n" "$leading_spaces_str" "$arg_border_color_esc" "$arg_border_char" "$top_bottom_border_line_str_h" "$arg_border_char" "$RESET"
+        fi
     fi
-
-    local i
-    #stripe 1
-    for (( i=0; i<lines_b1; i++ )); do
-        printf "%s" "$leading_spaces_str" #apply centering
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi 
-        printf "%b%s" "${BLUE}" "${block_line}" # flag content
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "\n"
-    done
-    #stripe 2
-    for (( i=0; i<lines_p1; i++ )); do
-        printf "%s" "$leading_spaces_str"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "%b%s" "${PINK}" "${block_line}"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "\n"
-    done
-    #stripe 3
-    for (( i=0; i<lines_w;  i++ )); do
-        printf "%s" "$leading_spaces_str"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "%b%s" "${WHITE}" "${block_line}"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "\n"
-    done
-    #stripe 4
-    for (( i=0; i<lines_p2; i++ )); do
-        printf "%s" "$leading_spaces_str"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "%b%s" "${PINK}" "${block_line}"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "\n"
-    done
-    #striple 5
-    for (( i=0; i<lines_b2; i++ )); do
-        printf "%s" "$leading_spaces_str"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "%b%s" "${BLUE}" "${block_line}"
-        if [[ "$arg_border_enabled_flag" -eq 1 ]]; then printf "%b%s" "$arg_border_color_esc" "$arg_border_char"; fi
-        printf "\n"
-    done
-
-    if [[ "$arg_border_enabled_flag" -eq 1 ]]; then
-        printf "%s%b%s\n" "$leading_spaces_str" "$arg_border_color_esc" "$top_bottom_border_line_str"
-    fi
-
-    printf "%b" "${RESET}"
     return 0
 }
+
 
 load_config
 
 #parse command flags
-declare -a pos_args=() #size preset 
-cli_flag_size_arg=""   #specified size
+declare -a pos_args=()
+cli_flag_size_arg=""
 
 while [[ $# -gt 0 ]]; do
-    case "$1" in
+    key="$1"
+    case "$key" in
         -h|--help) print_usage; exit 0 ;;
-        -w) 
-            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: option -w requires value." >&2; print_usage >&2; exit 1; fi # value missing or is another option
-            if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid width '$2' for -w." >&2; print_usage >&2; exit 1; fi
-            req_width="$2"; shift 2 ;; # consume -w and its value
-        --width=*)
-            val="${1#*=}"
-            if ! [[ "$val" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid width '$val' for --width." >&2; print_usage >&2; exit 1; fi
-            req_width="$val"; shift 1 ;; # consume --width=value
-        -he) 
-            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: option -he requires value." >&2; print_usage >&2; exit 1; fi
-            if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid height '$2' for -he." >&2; print_usage >&2; exit 1; fi
-            if [[ "$2" -lt 5 ]]; then echo "warning: specified height $2 is less than minimum 5. using 5." >&2; req_height=5; else req_height="$2"; fi
-            shift 2 ;;
-        --height=*)
-            val="${1#*=}"
-            if ! [[ "$val" =~ ^[1-9][0-9]*$ ]]; then echo "error: invalid height '$val' for --height." >&2; print_usage >&2; exit 1; fi
-            if [[ "$val" -lt 5 ]]; then echo "warning: specified height $val is less than minimum 5. using 5." >&2; req_height=5; else req_height="$val"; fi
-            shift 1 ;;
-        -c)
-            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: option -c requires value." >&2; print_usage >&2; exit 1; fi
-            if [[ ${#2} -ne 1 ]]; then echo "error: value '$2' for -c must be a single character." >&2; print_usage >&2; exit 1; fi
-            flag_char="$2"; shift 2 ;;
-        --char=*)
-            val="${1#*=}"
-            if [[ ${#val} -ne 1 ]]; then echo "error: value '$val' for --char must be a single character." >&2; print_usage >&2; exit 1; fi
-            flag_char="$val"; shift 1 ;;
-        -C|--center) auto_center_flag=1; shift ;; # enable centering
-        --border) border_enabled_flag=1; shift ;; # enable border with defaults
-        --border-char)
-            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: --border-char requires value." >&2; print_usage >&2; exit 1; fi
-            if [[ ${#2} -ne 1 ]]; then echo "error: border char '$2' must be a single character." >&2; print_usage >&2; exit 1; fi
-            border_char="$2"; border_enabled_flag=1; shift 2 ;; # set border char and enable border
-        --border-color-esc)
-            if [[ -z "$2" || "$2" =~ ^- ]]; then echo "error: --border-color-esc requires value." >&2; print_usage >&2; exit 1; fi
-            if ! [[ "$2" =~ ^\\033\[.*m$ ]]; then echo "error: invalid ansi escape code for --border-color-esc." >&2; print_usage >&2; exit 1; fi
-            border_color_esc="$2"; border_enabled_flag=1; shift 2 ;; # set border color and enable border
+        -w|--width) req_width="$2"; shift 2 ;; --width=*) req_width="${key#*=}"; shift ;;
+        -he|--height) req_height="$2"; shift 2 ;; --height=*) req_height="${key#*=}"; shift;;
+        -c|--char) flag_char="$2"; shift 2 ;; --char=*) flag_char="${key#*=}"; shift ;;
+        -C|--center) auto_center_flag=1; shift ;;
+        --border) border_enabled_flag=1; shift ;;
+        --border-char) border_char="$2"; border_enabled_flag=1; shift 2 ;;
+        --border-color-esc) border_color_esc="$2"; border_enabled_flag=1; shift 2 ;;
+        -m|--message) message_text="$2"; shift 2 ;; --message=*) message_text="${key#*=}"; shift ;;
+        --message-color-esc) message_text_color_esc="$2"; shift 2;;
+        --date) date_enabled_flag=1; if [[ -n "$2" && ! "$2" =~ ^- ]]; then date_format_str="$2"; shift; fi; shift;;
+        --date=*) date_enabled_flag=1; date_format_str="${key#*=}"; if [[ -z "$date_format_str" ]]; then date_format_str="$DEFAULT_DATE_FORMAT";fi; shift;;
+        --vertical) vertical_enabled_flag=1; shift ;;
         --) shift; pos_args+=("$@"); break ;; # end of options
-        -*) echo "error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;; # unknown option
-        *) pos_args+=("$1"); shift ;; # assume positional argument (size preset)
+        -*) echo "error: unknown option '$key'" >&2; print_usage >&2; exit 1 ;; # unknown option
+        *) pos_args+=("$key"); shift ;; # assume positional argument (size preset)
     esac
 done
+
+#validates numeric/char options after parsing all of them
+if ! [[ "$req_width" =~ ^(-1|[1-9][0-9]*)$ ]]; then echo "error: invalid width '$req_width'." >&2; print_usage >&2; exit 1; fi
+if ! [[ "$req_height" =~ ^(-1|[1-9][0-9]*)$ ]]; then echo "error: invalid height '$req_height'." >&2; print_usage >&2; exit 1; fi
+if [[ "$req_height" -ne -1 && "$req_height" -lt 5 ]]; then echo "warning: height $req_height < 5. using 5." >&2; req_height=5; fi
+if [[ ${#flag_char} -ne 1 ]]; then echo "error: flag char '$flag_char' must be single." >&2; print_usage >&2; exit 1; fi
+if [[ "$border_enabled_flag" -eq 1 && ${#border_char} -ne 1 ]]; then echo "error: border char '$border_char' must be single." >&2; print_usage >&2; exit 1; fi
+if [[ "$border_enabled_flag" -eq 1 && ! "$border_color_esc" =~ ^\\033\[.*m$ ]]; then echo "error: invalid ansi for border color." >&2; print_usage >&2; exit 1; fi
+if [[ -n "$message_text" && ! "$message_text_color_esc" =~ ^\\033\[.*m$ ]]; then echo "error: invalid ansi for message color." >&2; print_usage >&2; exit 1; fi
+
 
 # handle positional arguments (size preset)
 if [[ ${#pos_args[@]} -gt 1 ]]; then
@@ -383,73 +446,58 @@ if [[ ${#pos_args[@]} -gt 1 ]]; then
 elif [[ ${#pos_args[@]} -eq 1 ]]; then
     size_arg="${pos_args[0]}"
     if [[ "$size_arg" =~ ^(tiny|small|medium|big|huge|banner)$ ]]; then
-        cli_flag_size_arg="$size_arg"; flag_size="$size_arg" # cli preset overrides config/default size
+        flag_size="$size_arg" # cli preset overrides config/default size
     else
-        echo "error: invalid size argument '$size_arg'. use tiny, small, medium, big, huge, or banner." >&2; print_usage >&2; exit 1
+        echo "error: invalid size argument '$size_arg'." >&2; print_usage >&2; exit 1
     fi
 fi
 
 # 3. determine final dimensions for flag content
-final_width=0
-final_height=0
+TPUT_AVAILABLE=1; if ! command -v tput &> /dev/null; then TPUT_AVAILABLE=0; fi # check tput once
+final_width="$req_width"; final_height="$req_height"
 check_terminal_height_warning=0 # flag to trigger terminal height check for 'huge' or 'banner'
-TPUT_AVAILABLE=1
-if ! command -v tput &> /dev/null; then TPUT_AVAILABLE=0; fi # check tput once
 
 # determine width for flag content
-if [[ "$req_width" -gt 0 ]]; then # if width was set by -w/--width or config (TRANS_DEFAULT_WIDTH)
-    final_width="$req_width"
-else # width not explicitly set, use preset
+if [[ "$req_width" -le 0 ]]; then # width not explicitly set, use preset
     case "$flag_size" in
-        tiny)   final_width=20 ;;
-        small)  final_width=39 ;;
-        medium) final_width=42 ;;
+        tiny)   final_width=20 ;; small)  final_width=39 ;; medium) final_width=42 ;;
         big)    final_width=48 ;;
         huge|banner) # both huge and banner try to use terminal width
-            detected_width=0
-            if [[ "$TPUT_AVAILABLE" -eq 1 ]]; then
-                if ! detected_width=$(tput cols); then # try to get terminal columns
-                    echo "warning: 'tput cols' command failed. using default width for '$flag_size' (80)." >&2
-                    detected_width=0 # ensure it's not the failed command output
-                fi
-            fi
-            if [[ "$detected_width" =~ ^[1-9][0-9]*$ ]]; then # if tput gave a valid positive integer
-                final_width="$detected_width"
+            detected_term_width=0
+            if [[ "$TPUT_AVAILABLE" -eq 1 ]]; then detected_term_width=$(tput cols); fi
+            if [[ "$detected_term_width" =~ ^[1-9][0-9]*$ ]]; then # if tput gave a valid positive integer
+                final_width="$detected_term_width"
+                if [[ "$border_enabled_flag" -eq 1 ]]; then final_width=$((final_width - 2)); fi #adjust for border
             else # tput failed or returned invalid, or tput not available
-                default_dynamic_width=80
-                if [[ "$TPUT_AVAILABLE" -eq 1 && "$detected_width" != "0" && -n "$detected_width" ]]; then # tput ran but output was bad
-                    echo "warning: could not determine terminal width via tput (got '$detected_width'). using default width for '$flag_size' ($default_dynamic_width)." >&2
-                elif [[ "$TPUT_AVAILABLE" -eq 0 ]]; then # tput not available
-                    echo "warning: 'tput' unavailable. using default width for '$flag_size' ($default_dynamic_width)." >&2
-                fi
-                final_width="$default_dynamic_width"
-            fi ;;
+                final_width=80 #default dynamic
+                if [[ "$TPUT_AVAILABLE" -eq 0 ]]; then echo "warning: 'tput' unavailable. Using default width for '$flag_size' ($final_width)." >&2 # tput not available
+                else echo "warning: could not determine terminal width. Using default for '$flag_size' ($final_width)." >&2; fi
+            fi;;
     esac
 fi
-
 #determine height
-if [[ "$req_height" -gt 0 ]]; then # if height was set by flags or config
-    final_height="$req_height"
-    if [[ "$flag_size" == "huge" || "$flag_size" == "banner" ]] && [[ "$final_height" -gt 20 ]]; then
-        check_terminal_height_warning=1
-    fi
-else # height not set by flags, use preset
+if [[ "$req_height" -le 0 ]]; then # height not set by user, use preset
     case "$flag_size" in
-        tiny)   final_height=5 ;;
-        small)  final_height=12 ;;
-        medium) final_height=15 ;;
-        big)    final_height=17 ;;
-        banner) final_height=15 ;;
-        huge)   final_height=34; check_terminal_height_warning=1 ;; 
+        tiny)   final_height=5 ;;       small)  final_height=12 ;;
+        medium) final_height=15 ;;      big)    final_height=17 ;;
+        banner) final_height=15 ;; # Banner is wide
+        huge)   final_height=34; check_terminal_height_warning=1 ;;
     esac
 fi
 
-#sanity checks for final dimensions 
+#sanity checks for final dimensions
 if [[ "$final_width" -lt 1 ]]; then final_width=1; fi
 if [[ "$final_height" -lt 5 ]]; then final_height=5; fi
+if [[ "$vertical_enabled_flag" -eq 1 && "$final_width" -lt 5 ]]; then
+    echo "warning: vertical flag content width $final_width is less than 5, setting to 5." >&2
+    final_width=5
+fi
+
 
 DRAW_FLAG "$final_width" "$final_height" "$check_terminal_height_warning" \
           "$flag_char" "$auto_center_flag" "$border_enabled_flag" \
-          "$border_char" "$border_color_esc"
+          "$border_char" "$border_color_esc" \
+          "$message_text" "$date_enabled_flag" "$date_format_str" \
+          "$message_text_color_esc" "$vertical_enabled_flag"
 
 exit $?
